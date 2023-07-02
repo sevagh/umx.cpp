@@ -19,6 +19,9 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mfma -ffast-math -fno-signed-zer
 # define a macro NDEBUG for Eigen3 release builds
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG")
 
+# set EIGEN_USE_BLAS to 1 and link to OpenBLAS
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DEIGEN_USE_BLAS -DEIGEN_USE_LAPACKE")
+
 project(umx.cpp)
 enable_testing()
 
@@ -41,6 +44,10 @@ add_subdirectory(vendor/libnyquist)
 find_package(Eigen3 REQUIRED)
 include_directories(${EIGEN3_INCLUDE_DIR})
 
+# add OpenBLAS for blas + lapack
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
+
 # include vendor submodules libnyquist
 include_directories(vendor/libnyquist/include)
 
@@ -52,7 +59,7 @@ file(GLOB SOURCES "src/*.cpp")
 
 # compile library, link against libnyquist and Eigen3
 add_library(umx.cpp.lib SHARED ${SOURCES})
-target_link_libraries(umx.cpp.lib libnyquist Eigen3::Eigen)
+target_link_libraries(umx.cpp.lib libnyquist Eigen3::Eigen ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 if(OPENMP_FOUND)
     target_link_libraries(umx.cpp.lib ${OpenMP_CXX_LIBRARIES})
 endif()
