@@ -10,6 +10,30 @@ import argparse
 from pathlib import Path
 
 
+def quantize(array):
+    # Calculate min and max of the array
+    min_val = np.min(array)
+    max_val = np.max(array)
+
+    # Calculate scale and offset for quantization
+    scale = (max_val - min_val) / 65535.0
+    offset = min_val
+
+    # Quantize array
+    quantized_array = np.round((array - offset) / scale).astype(np.uint16)
+
+    # Return quantized array, scale and offset
+    return quantized_array, scale, offset
+
+
+def dequantize(quantized_array, scale, offset):
+    # Dequantize array
+    array = quantized_array * scale + offset
+
+    # Return dequantized array
+    return array
+
+
 HUB_PATHS = {
     "umxhq": {
         "vocals": "vocals-b62c91ce.pth",
@@ -71,7 +95,7 @@ if __name__ == '__main__':
         print(f"Converting target {target_name}")
         print(target_model)
 
-        dest_name = dir_out / f"ggml-model-{args.model}-{target_name}-f32.bin"
+        dest_name = dir_out / f"ggml-model-{args.model}-{target_name}-u16.bin"
 
         fname_inp = torchhub_path / HUB_PATHS[args.model][target_name]
 
@@ -107,15 +131,20 @@ if __name__ == '__main__':
 
             data = data.astype(np.float32)
 
+            # cast type to a uint16 to perform quantization
+            # take into account the min/max values of the data for each tensor
+            # and use that for appropriate quantization
+            quantized_data, scale, offset = quantize(data)
+
             # header
             str_ = name.encode('utf-8')
-            fout.write(struct.pack("ii", n_dims, len(str_)))
+            fout.write(struct.pack("ffii", scale, offset, n_dims, len(str_)))
             for i in range(n_dims):
                 fout.write(struct.pack("i", data.shape[n_dims - 1 - i]))
             fout.write(str_)
 
             # data
-            data.tofile(fout)
+            quantized_data.tofile(fout)
 
         fout.close()
 

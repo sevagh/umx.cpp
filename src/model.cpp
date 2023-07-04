@@ -12,7 +12,7 @@
 // forward declaration
 static size_t load_single_matrix(FILE *f, std::string &name,
                                  Eigen::MatrixXf &matrix, int ne[2],
-                                 int32_t nelements);
+                                 int32_t nelements, float scale, float offset);
 
 // from scripts/convert-pth-to-ggml.py
 bool umxcpp::load_umx_model(const std::string &model_dir,
@@ -191,9 +191,13 @@ bool umxcpp::load_umx_model(const std::string &model_dir,
             for (;;)
             {
                 // load all the weights from the file
+                float scale;
+                float offset;
                 int32_t n_dims;
                 int32_t length;
 
+                fread(&scale, sizeof(float), 1, f);
+                fread(&offset, sizeof(float), 1, f);
                 fread(&n_dims, sizeof(int32_t), 1, f);
                 fread(&length, sizeof(int32_t), 1, f);
 
@@ -226,7 +230,7 @@ bool umxcpp::load_umx_model(const std::string &model_dir,
                 {
                     Eigen::MatrixXf mean_tmp = Eigen::MatrixXf(1487, 1);
                     loaded_size =
-                        load_single_matrix(f, name, mean_tmp, ne, nelements);
+                        load_single_matrix(f, name, mean_tmp, ne, nelements, scale, offset);
                     // duplicate mean_tmp into model->input_mean[target_counter]
                     model->input_mean[target_counter].block(0, 0, 1487, 1) =
                         mean_tmp;
@@ -238,7 +242,7 @@ bool umxcpp::load_umx_model(const std::string &model_dir,
                 {
                     Eigen::MatrixXf scale_tmp = Eigen::MatrixXf(1487, 1);
                     loaded_size =
-                        load_single_matrix(f, name, scale_tmp, ne, nelements);
+                        load_single_matrix(f, name, scale_tmp, ne, nelements, scale, offset);
                     // duplicate scale_tmp into
                     // model->input_scale[target_counter]
                     model->input_scale[target_counter].block(0, 0, 1487, 1) =
@@ -251,7 +255,7 @@ bool umxcpp::load_umx_model(const std::string &model_dir,
                 {
                     Eigen::MatrixXf mean_tmp = Eigen::MatrixXf(2049, 1);
                     loaded_size =
-                        load_single_matrix(f, name, mean_tmp, ne, nelements);
+                        load_single_matrix(f, name, mean_tmp, ne, nelements, scale, offset);
                     // duplicate mean_tmp into
                     // model->output_mean[target_counter]
                     model->output_mean[target_counter].block(0, 0, 2049, 1) =
@@ -264,7 +268,7 @@ bool umxcpp::load_umx_model(const std::string &model_dir,
                 {
                     Eigen::MatrixXf scale_tmp = Eigen::MatrixXf(2049, 1);
                     loaded_size =
-                        load_single_matrix(f, name, scale_tmp, ne, nelements);
+                        load_single_matrix(f, name, scale_tmp, ne, nelements, scale, offset);
                     // duplicate scale_tmp into
                     // model->output_scale[target_counter]
                     model->output_scale[target_counter].block(0, 0, 2049, 1) =
@@ -276,232 +280,232 @@ bool umxcpp::load_umx_model(const std::string &model_dir,
                 if (name == "fc1.weight")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->fc1_w[target_counter], ne, nelements);
+                        f, name, model->fc1_w[target_counter], ne, nelements, scale, offset);
                 }
                 if (name == "bn1.weight")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn1_w[target_counter], ne, nelements);
+                        f, name, model->bn1_w[target_counter], ne, nelements, scale, offset);
                     model->bn1_w[target_counter].transposeInPlace();
                 }
                 if (name == "bn1.bias")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn1_b[target_counter], ne, nelements);
+                        f, name, model->bn1_b[target_counter], ne, nelements, scale, offset);
                     model->bn1_b[target_counter].transposeInPlace();
                 }
                 if (name == "bn1.running_mean")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn1_rm[target_counter], ne, nelements);
+                        f, name, model->bn1_rm[target_counter], ne, nelements, scale, offset);
                     model->bn1_rm[target_counter].transposeInPlace();
                 }
                 if (name == "bn1.running_var")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn1_rv[target_counter], ne, nelements);
+                        f, name, model->bn1_rv[target_counter], ne, nelements, scale, offset);
                     model->bn1_rv[target_counter].transposeInPlace();
                 }
                 if (name == "lstm.weight_ih_l0")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_w[target_counter][0][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_hh_l0")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_w[target_counter][0][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_ih_l0")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_b[target_counter][0][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_hh_l0")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_b[target_counter][0][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_ih_l0_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_w[target_counter][0][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_hh_l0_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_w[target_counter][0][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_ih_l0_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_b[target_counter][0][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_hh_l0_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_b[target_counter][0][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_ih_l1")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_w[target_counter][1][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_hh_l1")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_w[target_counter][1][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_ih_l1")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_b[target_counter][1][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_hh_l1")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_b[target_counter][1][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_ih_l1_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_w[target_counter][1][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_hh_l1_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_w[target_counter][1][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_ih_l1_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_b[target_counter][1][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_hh_l1_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_b[target_counter][1][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_ih_l2")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_w[target_counter][2][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_hh_l2")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_w[target_counter][2][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_ih_l2")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_b[target_counter][2][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_hh_l2")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_b[target_counter][2][0], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_ih_l2_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_w[target_counter][2][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.weight_hh_l2_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_w[target_counter][2][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_ih_l2_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_ih_b[target_counter][2][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "lstm.bias_hh_l2_reverse")
                 {
                     loaded_size = load_single_matrix(
                         f, name, model->lstm_hh_b[target_counter][2][1], ne,
-                        nelements);
+                        nelements, scale, offset);
                 }
                 if (name == "fc2.weight")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->fc2_w[target_counter], ne, nelements);
+                        f, name, model->fc2_w[target_counter], ne, nelements, scale, offset);
                 }
                 if (name == "bn2.weight")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn2_w[target_counter], ne, nelements);
+                        f, name, model->bn2_w[target_counter], ne, nelements, scale, offset);
                     model->bn2_w[target_counter].transposeInPlace();
                 }
                 if (name == "bn2.bias")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn2_b[target_counter], ne, nelements);
+                        f, name, model->bn2_b[target_counter], ne, nelements, scale, offset);
                     model->bn2_b[target_counter].transposeInPlace();
                 }
                 if (name == "bn2.running_mean")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn2_rm[target_counter], ne, nelements);
+                        f, name, model->bn2_rm[target_counter], ne, nelements, scale, offset);
                     model->bn2_rm[target_counter].transposeInPlace();
                 }
                 if (name == "bn2.running_var")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn2_rv[target_counter], ne, nelements);
+                        f, name, model->bn2_rv[target_counter], ne, nelements, scale, offset);
                     model->bn2_rv[target_counter].transposeInPlace();
                 }
                 if (name == "fc3.weight")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->fc3_w[target_counter], ne, nelements);
+                        f, name, model->fc3_w[target_counter], ne, nelements, scale, offset);
                 }
                 if (name == "bn3.weight")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn3_w[target_counter], ne, nelements);
+                        f, name, model->bn3_w[target_counter], ne, nelements, scale, offset);
                     model->bn3_w[target_counter].transposeInPlace();
                 }
                 if (name == "bn3.bias")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn3_b[target_counter], ne, nelements);
+                        f, name, model->bn3_b[target_counter], ne, nelements, scale, offset);
                     model->bn3_b[target_counter].transposeInPlace();
                 }
                 if (name == "bn3.running_mean")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn3_rm[target_counter], ne, nelements);
+                        f, name, model->bn3_rm[target_counter], ne, nelements, scale, offset);
                     model->bn3_rm[target_counter].transposeInPlace();
                 }
                 if (name == "bn3.running_var")
                 {
                     loaded_size = load_single_matrix(
-                        f, name, model->bn3_rv[target_counter], ne, nelements);
+                        f, name, model->bn3_rv[target_counter], ne, nelements, scale, offset);
                     model->bn3_rv[target_counter].transposeInPlace();
                 }
 
@@ -540,7 +544,7 @@ bool umxcpp::load_umx_model(const std::string &model_dir,
 // that takes an Eigen::MatrixXf &matrix and populates it from a file
 static size_t load_single_matrix(FILE *f, std::string &name,
                                  Eigen::MatrixXf &matrix, int ne[2],
-                                 int32_t nelements)
+                                 int32_t nelements, float scale, float offset)
 {
     if (matrix.size() != nelements ||
         (matrix.rows() != ne[0] || matrix.cols() != ne[1]))
@@ -553,22 +557,30 @@ static size_t load_single_matrix(FILE *f, std::string &name,
         return 0;
     }
 
-    const size_t bpe = sizeof(float);
-    auto nbytes_tensor = matrix.size() * bpe;
+    // loading quantized weights
+    const size_t bpe_quantized = sizeof(uint16_t);
+    auto nbytes_tensor = matrix.size() * bpe_quantized;
 
-    if ((nelements * bpe) != nbytes_tensor)
-    {
-        fprintf(stderr,
-                "%s: tensor '%s' has wrong size in model file: got %zu, "
-                "expected %zu\n",
-                __func__, name.data(), nbytes_tensor, nelements * bpe);
-        return 0;
-    }
+    // create a uint16_t Eigen::Matrix to hold the quantized weights
+    // of the same shape as the float matrix
+    Eigen::Matrix<uint16_t, Eigen::Dynamic, Eigen::Dynamic> matrix_uint16 =
+        Eigen::Matrix<uint16_t, Eigen::Dynamic, Eigen::Dynamic>::Zero(
+            matrix.rows(), matrix.cols());
 
-    fread(matrix.data(), bpe, nelements, f);
+    fread(matrix_uint16.data(), bpe_quantized, nelements, f);
 
     printf("%16s: [%5d, %5d], type = float, %6.2f MB\n", name.data(), ne[0],
            ne[1], nbytes_tensor / 1024.0 / 1024.0);
+
+    // now dequantize the weights using scale and offset
+    // and copy them into the float matrix
+    for (int i = 0; i < ne[0]; i++)
+    {
+        for (int j = 0; j < ne[1]; j++)
+        {
+            matrix(i, j) = (matrix_uint16(i, j) * scale + offset);
+        }
+    }
 
     return nbytes_tensor;
 }

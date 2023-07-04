@@ -4,6 +4,8 @@ C++17 implementation of [Open-Unmix](https://github.com/sigsep/open-unmix-pytorc
 
 It uses [libnyquist](https://github.com/ddiakopoulos/libnyquist) to load audio files, the [ggml](https://github.com/ggerganov/ggml) file format to serialize the PyTorch weights of `umxhq` and `umxl` to a binary file format, and [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) (+ OpenMP) to implement the inference of Open-Unmix.
 
+The float32 weights of UMX are quantized to uint16 during the conversion to the binary ggml format. The size on disk for umx.cpp's weights files are therefore ~50% of the original weights (216MB vs. 432MB for umxl, 68MB vs. 136MB for umxhq), with identical BSS results.
+
 ## Performance
 
 The demixed output wav files (and their SDR score) of the main program [`umx.cpp`](./umx.cpp) are mostly identical to the PyTorch models (with the post-processing Wiener-EM step disabled):
@@ -81,20 +83,20 @@ Processing variable:  bn3.bias  with shape:  (4098,)
 Processing variable:  bn3.running_mean  with shape:  (4098,)
 Processing variable:  bn3.running_var  with shape:  (4098,)
 Skipping layer bn3.num_batches_tracked
-Done. Output file:  ggml-umxl/ggml-model-umxl-other-f32.bin
+Done. Output file:  ggml-umxl/ggml-model-umxl-other-u16.bin
 
 ```
 
 This will load the model using PyTorch Torchhub (which implicitly downloads the weights files to the hidden torchhub folder), locate the weights files, and dump them using the [ggml](http://ggml.ai/) file format:
 ```
 $ ls -latrh ggml-umxl/
-total 432M
+total 216M
 drwxrwxr-x  2 sevagh sevagh 4.0K Jun 28 10:14 .
 drwxrwxr-x 13 sevagh sevagh 4.0K Jun 30 10:57 ..
--rw-rw-r--  1 sevagh sevagh 108M Jun 30 11:06 ggml-model-umxl-vocals-f32.bin
--rw-rw-r--  1 sevagh sevagh 108M Jun 30 11:06 ggml-model-umxl-drums-f32.bin
--rw-rw-r--  1 sevagh sevagh 108M Jun 30 11:06 ggml-model-umxl-bass-f32.bin
--rw-rw-r--  1 sevagh sevagh 108M Jun 30 11:06 ggml-model-umxl-other-f32.bin
+-rw-rw-r--  1 sevagh sevagh 54M Jun 30 11:06 ggml-model-umxl-vocals-u16.bin
+-rw-rw-r--  1 sevagh sevagh 54M Jun 30 11:06 ggml-model-umxl-drums-u16.bin
+-rw-rw-r--  1 sevagh sevagh 54M Jun 30 11:06 ggml-model-umxl-bass-u16.bin
+-rw-rw-r--  1 sevagh sevagh 54M Jun 30 11:06 ggml-model-umxl-other-u16.bin
 ```
 
 3. Install C++ dependencies, e.g. CMake, gcc, C++/g++, Eigen, OpenMP for your OS - my instructions are for Pop!\_OS 22.04:
@@ -114,22 +116,24 @@ Note: I have only tested this on my Linux-based computer (Pop!\_OS 22.04), and y
 ```
 $ ./umx.cpp.main
 Usage: ./umx.cpp.main <model dir> <wav file> <out dir>
+
+$ ./umx.cpp.main ./ggml-umxhq ./test.wav ./demix-out-umxhq
 umx.cpp Main driver program
 Number of physical cores: 32
 Input Samples: 23222488
 Length in seconds: 263.294
 Number of channels: 2
 load_umx_model: loading model
-Discovered model file "../ggml-umxl/ggml-model-umxl-other-f32.bin" in model dir../ggml-umxl/
-Discovered model file "../ggml-umxl/ggml-model-umxl-drums-f32.bin" in model dir../ggml-umxl/
-Discovered model file "../ggml-umxl/ggml-model-umxl-vocals-f32.bin" in model dir../ggml-umxl/
-Discovered model file "../ggml-umxl/ggml-model-umxl-bass-f32.bin" in model dir../ggml-umxl/
-Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-bass-f32.bin
-Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-drums-f32.bin
-Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-other-f32.bin
-Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-vocals-f32.bin
+Discovered model file "../ggml-umxl/ggml-model-umxl-other-u16.bin" in model dir../ggml-umxl/
+Discovered model file "../ggml-umxl/ggml-model-umxl-drums-u16.bin" in model dir../ggml-umxl/
+Discovered model file "../ggml-umxl/ggml-model-umxl-vocals-u16.bin" in model dir../ggml-umxl/
+Discovered model file "../ggml-umxl/ggml-model-umxl-bass-u16.bin" in model dir../ggml-umxl/
+Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-bass-u16.bin
+Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-drums-u16.bin
+Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-other-u16.bin
+Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-vocals-u16.bin
 Loaded umx model with hidden size 1024
-Loading weights from model_file ../ggml-umxl/ggml-model-umxl-bass-f32.bin into target 0
+Loading weights from model_file ../ggml-umxl/ggml-model-umxl-bass-u16.bin into target 0
 Loading tensor input_mean with shape [1487, 1]
       input_mean: [ 1487,     1], type = float,   0.01 MB
 Loading tensor input_scale with shape [1487, 1]
@@ -150,7 +154,7 @@ Loading tensor bn1.running_var with shape [1024, 1]
 
 ... <truncated>
 
-Loaded model (172 tensors, 431.36 MB) in 0.131382 s
+Loaded model (172 tensors, 215.68 MB) in 0.609294 s
 umx_model_load returned true
 Computing STFT
 spec shape: (incl 2 chan) 11340 x 2049
@@ -158,13 +162,13 @@ Computing STFT magnitude
 Computing STFT phase
 Running inference with Eigen matrices
 
-Writing wav file "./aam-out/target_0.wav" to ./aam-out
+Writing wav file "./demix-out-umxhq/target_0.wav" to ./demix-out-umxhq
 Encoder Status: 0
-Writing wav file "./aam-out/target_2.wav" to ./aam-out
+Writing wav file "./demix-out-umxhq/target_2.wav" to ./demix-out-umxhq
 Encoder Status: 0
-Writing wav file "./aam-out/target_1.wav" to ./aam-out
+Writing wav file "./demix-out-umxhq/target_1.wav" to ./demix-out-umxhq
 Encoder Status: 0
-Writing wav file "./aam-out/target_3.wav" to ./aam-out
+Writing wav file "./demix-out-umxhq/target_3.wav" to ./demix-out-umxhq
 Encoder Status: 0
 ```
 
