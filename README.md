@@ -117,7 +117,7 @@ Note: I have only tested this on my Linux-based computer (Pop!\_OS 22.04), and y
 $ ./umx.cpp.main
 Usage: ./umx.cpp.main <model dir> <wav file> <out dir>
 
-$ ./umx.cpp.main ./ggml-umxhq ./test.wav ./demix-out-umxhq
+$ ./umx.cpp.main ./ggml-umxl ./test.wav ./demix-out-umxl
 umx.cpp Main driver program
 Number of physical cores: 32
 Input Samples: 23222488
@@ -162,13 +162,13 @@ Computing STFT magnitude
 Computing STFT phase
 Running inference with Eigen matrices
 
-Writing wav file "./demix-out-umxhq/target_0.wav" to ./demix-out-umxhq
+Writing wav file "./demix-out-umxl/target_0.wav" to ./demix-out-umxl
 Encoder Status: 0
-Writing wav file "./demix-out-umxhq/target_2.wav" to ./demix-out-umxhq
+Writing wav file "./demix-out-umxl/target_2.wav" to ./demix-out-umxl
 Encoder Status: 0
-Writing wav file "./demix-out-umxhq/target_1.wav" to ./demix-out-umxhq
+Writing wav file "./demix-out-umxl/target_1.wav" to ./demix-out-umxl
 Encoder Status: 0
-Writing wav file "./demix-out-umxhq/target_3.wav" to ./demix-out-umxhq
+Writing wav file "./demix-out-umxl/target_3.wav" to ./demix-out-umxl
 Encoder Status: 0
 ```
 
