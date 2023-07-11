@@ -1,5 +1,6 @@
 #include "dsp.hpp"
 #include "lstm.hpp"
+#include "wiener.hpp"
 #include "model.hpp"
 #include <Eigen/Core>
 #include <Eigen/Dense>
@@ -63,6 +64,7 @@ int main(int argc, const char **argv)
     // let's get a stereo complex spectrogram first
     std::cout << "Computing STFT" << std::endl;
     StereoSpectrogramC spectrogram = stft(audio);
+    StereoSpectrogramC target_spectrograms[4];
 
     std::cout << "spec shape: (incl 2 chan) " << spectrogram.left.size()
               << " x " << spectrogram.left[0].size() << std::endl;
@@ -248,10 +250,17 @@ int main(int argc, const char **argv)
         }
 
         // now let's get a stereo waveform back first with phase
-        StereoSpectrogramC mix_complex_target =
+        // initial estimate
+        target_spectrograms[target] =
             combine(mix_mag_target, mix_phase);
 
-        StereoWaveform audio_target = istft(mix_complex_target);
+    }
+
+    auto refined_spectrograms = wiener_filter(
+        spectrogram, target_spectrograms);
+
+    for (int target = 0; target < 4; target++) {
+        StereoWaveform audio_target = istft(target_spectrograms[target]);
 
         // now write the 4 audio waveforms to files in the output dir
         // using libnyquist
