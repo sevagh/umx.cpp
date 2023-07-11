@@ -256,11 +256,13 @@ int main(int argc, const char **argv)
 
     }
 
+    std::cout << "Now running wiener filter" << std::endl;
     auto refined_spectrograms = wiener_filter(
         spectrogram, target_spectrograms);
 
     for (int target = 0; target < 4; target++) {
-        StereoWaveform audio_target = istft(target_spectrograms[target]);
+        // TODO: use refined_spectrograms here
+        StereoWaveform audio_target = istft(refined_spectrograms[target]);
 
         // now write the 4 audio waveforms to files in the output dir
         // using libnyquist

@@ -37,29 +37,61 @@ if __name__ == '__main__':
     elif args.model == 'umxl':
         umx_module = 'openunmix.umxl_spec'
 
-    model = eval(umx_module)()
+    #model = eval(umx_module)()
+    model = openunmix.umxl()
 
     # Perform inference with spectrogram
-    stft, istft = openunmix.transforms.make_filterbanks(n_fft=4096, n_hop=1024, center=True, sample_rate=44100.0, method="torch")
+    #stft, istft = openunmix.transforms.make_filterbanks(n_fft=4096, n_hop=1024, center=True, sample_rate=44100.0, method="torch")
+    #spec = stft(audio)
+    #mag_spec = torch.abs(torch.view_as_complex(spec))
+    #phase_spec = torch.angle(torch.view_as_complex(spec))
+
+    #out_mag_specs = []
+
+    ## UMX forward inference
+    #for target_name, target_model in model.items():
+    #    print(f"Inference for target {target_name}")
+    #    out_mag_specs.append(torch.unsqueeze(target_model(mag_spec), dim=-1))
+
+    #out_mag_spec = torch.cat(out_mag_specs, dim=-1)
+    #print(out_mag_spec.shape)
+
+    ## Convert back to complex tensor
+
+    ## apply wiener filter
+    #wiener_win_len = 300
+    #pos = 0
+    #nb_frames = out_mag_spec.shape[-2]
+
+    #out_spec = torch.zeros((*spec.shape, 4,), dtype=torch.float32)
+
+    #print(f"out_mag_spec shape: {out_mag_spec.shape}")
+    #print(f"spec shape: {spec.shape}")
+
+    #while pos < nb_frames:
+    #    cur_frame = torch.arange(pos, min(nb_frames, pos+wiener_win_len))
+    #    tmp = openunmix.filtering.wiener(
+    #        out_mag_spec[0, :, :, cur_frame, :],
+    #        spec[0, :, :, cur_frame, :],
+    #        1,
+    #        False,
+    #        False
+    #    )
+    #    out_spec[0, :, :, cur_frame, :] = tmp.permute(2, 1, 0, 3, 4)
+
+    #print(f"FINISH: {out_spec.shape}")
+
     audio = torch.unsqueeze(audio, dim=0)
-    spec = stft(audio)
-    mag_spec = torch.abs(torch.view_as_complex(spec))
-    phase_spec = torch.angle(torch.view_as_complex(spec))
+    out = model(audio)
+    print(f"out shape: {out.shape}")
+    out = model.to_dict(out)
+    #out = torch.squeeze(out, dim=0)
 
-    # UMX forward inference
-    for target_name, target_model in model.items():
-        print(f"Inference for target {target_name}")
-        out_mag_spec = target_model(mag_spec)
-        print(type(out_mag_spec))
-        print(out_mag_spec.shape)
-
-        # Convert back to complex tensor
-        out_spec = out_mag_spec * torch.exp(1j * phase_spec)
-
+    for target_name, target_waveform in out.items():
         # get istft
-        out_audio = istft(torch.view_as_real(out_spec))
-        print(out_audio.shape)
-        out_audio = torch.squeeze(out_audio, dim=0)
+        print(target_waveform.shape)
+        out_audio = torch.squeeze(target_waveform, dim=0)
+        print(f"writing target {target_name} to file {target_digit_map[target_name]}")
 
         # write to file in directory
         if args.dest_dir is not None:
