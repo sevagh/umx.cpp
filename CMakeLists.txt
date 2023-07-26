@@ -41,8 +41,7 @@ set(LIBNYQUIST_BUILD_EXAMPLE OFF CACHE BOOL "Disable libnyquist example")
 add_subdirectory(vendor/libnyquist)
 
 # add library Eigen3
-find_package(Eigen3 REQUIRED)
-include_directories(${EIGEN3_INCLUDE_DIR})
+include_directories(vendor/eigen)
 
 # add OpenBLAS for blas + lapack
 find_package(BLAS REQUIRED)
@@ -57,9 +56,9 @@ include_directories(src)
 # include src/*.cpp and src/*.c as source files
 file(GLOB SOURCES "src/*.cpp")
 
-# compile library, link against libnyquist and Eigen3
+# compile library, link against libnyquist
 add_library(umx.cpp.lib SHARED ${SOURCES})
-target_link_libraries(umx.cpp.lib libnyquist Eigen3::Eigen ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+target_link_libraries(umx.cpp.lib libnyquist ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 if(OPENMP_FOUND)
     target_link_libraries(umx.cpp.lib ${OpenMP_CXX_LIBRARIES})
 endif()

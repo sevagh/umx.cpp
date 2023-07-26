@@ -38,50 +38,66 @@ static Eigen::MatrixXf sigmoid(const Eigen::MatrixXf &x)
     return 1.0 / (1.0 + (-x).array().exp());
 }
 
-Eigen::MatrixXf umxcpp::umx_lstm_forward(const struct umxcpp::umx_model &model,
+struct umxcpp::lstm_data umxcpp::create_lstm_data(int hidden_size, int seq_len)
+{
+    int hidden_state_size = hidden_size;
+    int cell_state_size = hidden_state_size;
+
+    return {// output_per_direction[3][2]
+            {
+                {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
+                 Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
+                {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
+                 Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
+                {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
+                 Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
+            },
+            // output[3]
+            {
+                Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
+                Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
+                Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
+            },
+            // h[3][2]
+            {
+                {Eigen::MatrixXf::Zero(hidden_state_size, 1),
+                 Eigen::MatrixXf::Zero(hidden_state_size, 1)},
+                {Eigen::MatrixXf::Zero(hidden_state_size, 1),
+                 Eigen::MatrixXf::Zero(hidden_state_size, 1)},
+                {Eigen::MatrixXf::Zero(hidden_state_size, 1),
+                 Eigen::MatrixXf::Zero(hidden_state_size, 1)},
+            },
+            // c[3][2]
+            {
+                {Eigen::MatrixXf::Zero(cell_state_size, 1),
+                 Eigen::MatrixXf::Zero(cell_state_size, 1)},
+                {Eigen::MatrixXf::Zero(cell_state_size, 1),
+                 Eigen::MatrixXf::Zero(cell_state_size, 1)},
+                {Eigen::MatrixXf::Zero(cell_state_size, 1),
+                 Eigen::MatrixXf::Zero(cell_state_size, 1)},
+            }};
+}
+
+Eigen::MatrixXf umxcpp::umx_lstm_forward(struct umxcpp::umx_model *model,
                                          int target,
                                          const Eigen::MatrixXf &input,
+                                         struct umxcpp::lstm_data *data,
                                          int hidden_size)
 {
     int seq_len = input.rows();
     int hidden_state_size = hidden_size;
-    int cell_state_size = hidden_state_size;
 
-    Eigen::MatrixXf output_per_direction[3][2] = {
-        {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
-         Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
-        {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
-         Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
-        {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
-         Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
-    };
-
-    Eigen::MatrixXf output[3] = {
-        Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
-        Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
-        Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size)};
-
-    Eigen::MatrixXf h[3][2] = {{
-                                   Eigen::MatrixXf::Zero(hidden_state_size, 1),
-                                   Eigen::MatrixXf::Zero(hidden_state_size, 1),
-                               },
-                               {
-                                   Eigen::MatrixXf::Zero(hidden_state_size, 1),
-                                   Eigen::MatrixXf::Zero(hidden_state_size, 1),
-                               },
-                               {Eigen::MatrixXf::Zero(hidden_state_size, 1),
-                                Eigen::MatrixXf::Zero(hidden_state_size, 1)}};
-
-    Eigen::MatrixXf c[3][2] = {{
-                                   Eigen::MatrixXf::Zero(cell_state_size, 1),
-                                   Eigen::MatrixXf::Zero(cell_state_size, 1),
-                               },
-                               {
-                                   Eigen::MatrixXf::Zero(cell_state_size, 1),
-                                   Eigen::MatrixXf::Zero(cell_state_size, 1),
-                               },
-                               {Eigen::MatrixXf::Zero(cell_state_size, 1),
-                                Eigen::MatrixXf::Zero(cell_state_size, 1)}};
+    // set all data to zero
+    for (int i = 0; i < 3; ++i)
+    {
+        data->output[i].setZero();
+        for (int j = 0; j < 2; ++j)
+        {
+            data->output_per_direction[i][j].setZero();
+            data->h[i][j].setZero();
+            data->c[i][j].setZero();
+        }
+    }
 
     Eigen::MatrixXf loop_input = input;
 
@@ -108,12 +124,14 @@ Eigen::MatrixXf umxcpp::umx_lstm_forward(const struct umxcpp::umx_model &model,
                 //
                 // the initial values for h and c are 0
                 Eigen::MatrixXf gates =
-                    model.lstm_ih_w[target][lstm_layer][direction].transpose() *
+                    model->lstm_ih_w[target][lstm_layer][direction]
+                            .transpose() *
                         loop_input.row(t).transpose() +
-                    model.lstm_ih_b[target][lstm_layer][direction] +
-                    model.lstm_hh_w[target][lstm_layer][direction].transpose() *
-                        h[lstm_layer][direction] +
-                    model.lstm_hh_b[target][lstm_layer][direction];
+                    model->lstm_ih_b[target][lstm_layer][direction] +
+                    model->lstm_hh_w[target][lstm_layer][direction]
+                            .transpose() *
+                        data->h[lstm_layer][direction] +
+                    model->lstm_hh_b[target][lstm_layer][direction];
 
                 // slice up the gates into i|f|g|o-sized chunks
                 Eigen::MatrixXf i_t =
@@ -128,28 +146,28 @@ Eigen::MatrixXf umxcpp::umx_lstm_forward(const struct umxcpp::umx_model &model,
                     3 * hidden_state_size, 0, hidden_state_size, 1));
 
                 Eigen::MatrixXf c_t =
-                    f_t.array() * c[lstm_layer][direction].array() +
+                    f_t.array() * data->c[lstm_layer][direction].array() +
                     i_t.array() * g_t.array();
                 Eigen::MatrixXf h_t = o_t.array() * (c_t.array().tanh());
 
                 // store the hidden and cell states for later use
-                h[lstm_layer][direction] = h_t;
-                c[lstm_layer][direction] = c_t;
+                data->h[lstm_layer][direction] = h_t;
+                data->c[lstm_layer][direction] = c_t;
 
-                output_per_direction[lstm_layer][direction].row(t)
+                data->output_per_direction[lstm_layer][direction].row(t)
                     << h_t.transpose();
             }
         }
 
         // after both directions are done per LSTM layer, concatenate the
         // outputs
-        output[lstm_layer] << output_per_direction[lstm_layer][0],
-            output_per_direction[lstm_layer][1];
+        data->output[lstm_layer] << data->output_per_direction[lstm_layer][0],
+            data->output_per_direction[lstm_layer][1];
 
-        loop_input = output[lstm_layer];
+        loop_input = data->output[lstm_layer];
     }
 
     // return the concatenated forward and backward hidden state as the final
     // output
-    return output[2];
+    return data->output[2];
 }
