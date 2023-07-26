@@ -33,141 +33,131 @@
 //     i.e. Hadamard product
 // ht = o * tanh(c)
 
-static Eigen::MatrixXf sigmoid(const Eigen::MatrixXf &x)
-{
-    return 1.0 / (1.0 + (-x).array().exp());
+static Eigen::MatrixXf sigmoid(const Eigen::MatrixXf &x) {
+  return 1.0 / (1.0 + (-x).array().exp());
 }
 
-struct umxcpp::lstm_data umxcpp::create_lstm_data(int hidden_size, int seq_len)
-{
-    int hidden_state_size = hidden_size;
-    int cell_state_size = hidden_state_size;
+struct umxcpp::lstm_data umxcpp::create_lstm_data(int hidden_size,
+                                                  int seq_len) {
+  int hidden_state_size = hidden_size;
+  int cell_state_size = hidden_state_size;
 
-    return {// output_per_direction[3][2]
-            {
-                {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
-                 Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
-                {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
-                 Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
-                {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
-                 Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
-            },
-            // output[3]
-            {
-                Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
-                Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
-                Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
-            },
-            // h[3][2]
-            {
-                {Eigen::MatrixXf::Zero(hidden_state_size, 1),
-                 Eigen::MatrixXf::Zero(hidden_state_size, 1)},
-                {Eigen::MatrixXf::Zero(hidden_state_size, 1),
-                 Eigen::MatrixXf::Zero(hidden_state_size, 1)},
-                {Eigen::MatrixXf::Zero(hidden_state_size, 1),
-                 Eigen::MatrixXf::Zero(hidden_state_size, 1)},
-            },
-            // c[3][2]
-            {
-                {Eigen::MatrixXf::Zero(cell_state_size, 1),
-                 Eigen::MatrixXf::Zero(cell_state_size, 1)},
-                {Eigen::MatrixXf::Zero(cell_state_size, 1),
-                 Eigen::MatrixXf::Zero(cell_state_size, 1)},
-                {Eigen::MatrixXf::Zero(cell_state_size, 1),
-                 Eigen::MatrixXf::Zero(cell_state_size, 1)},
-            }};
+  return {// output_per_direction[3][2]
+          {
+              {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
+               Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
+              {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
+               Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
+              {Eigen::MatrixXf::Zero(seq_len, hidden_state_size),
+               Eigen::MatrixXf::Zero(seq_len, hidden_state_size)},
+          },
+          // output[3]
+          {
+              Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
+              Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
+              Eigen::MatrixXf::Zero(seq_len, 2 * hidden_state_size),
+          },
+          // h[3][2]
+          {
+              {Eigen::MatrixXf::Zero(hidden_state_size, 1),
+               Eigen::MatrixXf::Zero(hidden_state_size, 1)},
+              {Eigen::MatrixXf::Zero(hidden_state_size, 1),
+               Eigen::MatrixXf::Zero(hidden_state_size, 1)},
+              {Eigen::MatrixXf::Zero(hidden_state_size, 1),
+               Eigen::MatrixXf::Zero(hidden_state_size, 1)},
+          },
+          // c[3][2]
+          {
+              {Eigen::MatrixXf::Zero(cell_state_size, 1),
+               Eigen::MatrixXf::Zero(cell_state_size, 1)},
+              {Eigen::MatrixXf::Zero(cell_state_size, 1),
+               Eigen::MatrixXf::Zero(cell_state_size, 1)},
+              {Eigen::MatrixXf::Zero(cell_state_size, 1),
+               Eigen::MatrixXf::Zero(cell_state_size, 1)},
+          }};
 }
 
 Eigen::MatrixXf umxcpp::umx_lstm_forward(struct umxcpp::umx_model *model,
                                          int target,
                                          const Eigen::MatrixXf &input,
                                          struct umxcpp::lstm_data *data,
-                                         int hidden_size)
-{
-    int seq_len = input.rows();
-    int hidden_state_size = hidden_size;
+                                         int hidden_size) {
+  int seq_len = input.rows();
+  int hidden_state_size = hidden_size;
 
-    // set all data to zero
-    for (int i = 0; i < 3; ++i)
-    {
-        data->output[i].setZero();
-        for (int j = 0; j < 2; ++j)
-        {
-            data->output_per_direction[i][j].setZero();
-            data->h[i][j].setZero();
-            data->c[i][j].setZero();
-        }
+  // set all data to zero
+  for (int i = 0; i < 3; ++i) {
+    data->output[i].setZero();
+    for (int j = 0; j < 2; ++j) {
+      data->output_per_direction[i][j].setZero();
+      data->h[i][j].setZero();
+      data->c[i][j].setZero();
     }
+  }
 
-    Eigen::MatrixXf loop_input = input;
+  Eigen::MatrixXf loop_input = input;
 
-    for (int lstm_layer = 0; lstm_layer < 3; ++lstm_layer)
-    {
+  for (int lstm_layer = 0; lstm_layer < 3; ++lstm_layer) {
 // parallelize the directions which don't depend on each other
 #pragma omp parallel for
-        for (int direction = 0; direction < 2; ++direction)
-        {
-            // forward direction = 0: for t = 0 to seq_len - 1
-            // backward direction = 1: for t = seq_len - 1 to 0
-            for (int t = (direction == 0 ? 0 : seq_len - 1);
-                 (direction == 0 ? t < seq_len : t > -1);
-                 t += (direction == 0 ? 1 : -1))
-            {
-                // apply the inner input/hidden gate calculation for all gates
-                // W_ih * x_t + b_ih + W_hh * h_{t-1} + b_hh
-                //
-                // at the end of the loop iteration, h[lstm_layer][direction]
-                // will store h_t of this iteration at the beginning of the next
-                // loop iteration, h[lstm_layer][direction] will be h_{t-1},
-                // which is what we want similar for c[lstm_layer][direction]
-                // and c_{t-1}
-                //
-                // the initial values for h and c are 0
-                Eigen::MatrixXf gates =
-                    model->lstm_ih_w[target][lstm_layer][direction]
-                            .transpose() *
-                        loop_input.row(t).transpose() +
-                    model->lstm_ih_b[target][lstm_layer][direction] +
-                    model->lstm_hh_w[target][lstm_layer][direction]
-                            .transpose() *
-                        data->h[lstm_layer][direction] +
-                    model->lstm_hh_b[target][lstm_layer][direction];
+    for (int direction = 0; direction < 2; ++direction) {
+      // forward direction = 0: for t = 0 to seq_len - 1
+      // backward direction = 1: for t = seq_len - 1 to 0
+      for (int t = (direction == 0 ? 0 : seq_len - 1);
+           (direction == 0 ? t < seq_len : t > -1);
+           t += (direction == 0 ? 1 : -1)) {
+        // apply the inner input/hidden gate calculation for all gates
+        // W_ih * x_t + b_ih + W_hh * h_{t-1} + b_hh
+        //
+        // at the end of the loop iteration, h[lstm_layer][direction]
+        // will store h_t of this iteration at the beginning of the next
+        // loop iteration, h[lstm_layer][direction] will be h_{t-1},
+        // which is what we want similar for c[lstm_layer][direction]
+        // and c_{t-1}
+        //
+        // the initial values for h and c are 0
+        Eigen::MatrixXf gates =
+            model->lstm_ih_w[target][lstm_layer][direction].transpose() *
+                loop_input.row(t).transpose() +
+            model->lstm_ih_b[target][lstm_layer][direction] +
+            model->lstm_hh_w[target][lstm_layer][direction].transpose() *
+                data->h[lstm_layer][direction] +
+            model->lstm_hh_b[target][lstm_layer][direction];
 
-                // slice up the gates into i|f|g|o-sized chunks
-                Eigen::MatrixXf i_t =
-                    sigmoid(gates.block(0, 0, hidden_state_size, 1));
-                Eigen::MatrixXf f_t = sigmoid(
-                    gates.block(hidden_state_size, 0, hidden_state_size, 1));
-                Eigen::MatrixXf g_t = (gates.block(2 * hidden_state_size, 0,
-                                                   hidden_state_size, 1))
-                                          .array()
-                                          .tanh();
-                Eigen::MatrixXf o_t = sigmoid(gates.block(
-                    3 * hidden_state_size, 0, hidden_state_size, 1));
+        // slice up the gates into i|f|g|o-sized chunks
+        Eigen::MatrixXf i_t = sigmoid(gates.block(0, 0, hidden_state_size, 1));
+        Eigen::MatrixXf f_t =
+            sigmoid(gates.block(hidden_state_size, 0, hidden_state_size, 1));
+        Eigen::MatrixXf g_t =
+            (gates.block(2 * hidden_state_size, 0, hidden_state_size, 1))
+                .array()
+                .tanh();
+        Eigen::MatrixXf o_t = sigmoid(
+            gates.block(3 * hidden_state_size, 0, hidden_state_size, 1));
 
-                Eigen::MatrixXf c_t =
-                    f_t.array() * data->c[lstm_layer][direction].array() +
-                    i_t.array() * g_t.array();
-                Eigen::MatrixXf h_t = o_t.array() * (c_t.array().tanh());
+        Eigen::MatrixXf c_t =
+            f_t.array() * data->c[lstm_layer][direction].array() +
+            i_t.array() * g_t.array();
+        Eigen::MatrixXf h_t = o_t.array() * (c_t.array().tanh());
 
-                // store the hidden and cell states for later use
-                data->h[lstm_layer][direction] = h_t;
-                data->c[lstm_layer][direction] = c_t;
+        // store the hidden and cell states for later use
+        data->h[lstm_layer][direction] = h_t;
+        data->c[lstm_layer][direction] = c_t;
 
-                data->output_per_direction[lstm_layer][direction].row(t)
-                    << h_t.transpose();
-            }
-        }
-
-        // after both directions are done per LSTM layer, concatenate the
-        // outputs
-        data->output[lstm_layer] << data->output_per_direction[lstm_layer][0],
-            data->output_per_direction[lstm_layer][1];
-
-        loop_input = data->output[lstm_layer];
+        data->output_per_direction[lstm_layer][direction].row(t)
+            << h_t.transpose();
+      }
     }
 
-    // return the concatenated forward and backward hidden state as the final
-    // output
-    return data->output[2];
+    // after both directions are done per LSTM layer, concatenate the
+    // outputs
+    data->output[lstm_layer] << data->output_per_direction[lstm_layer][0],
+        data->output_per_direction[lstm_layer][1];
+
+    loop_input = data->output[lstm_layer];
+  }
+
+  // return the concatenated forward and backward hidden state as the final
+  // output
+  return data->output[2];
 }

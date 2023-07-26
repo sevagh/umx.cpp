@@ -4,14 +4,12 @@
 #include "model.hpp"
 #include <Eigen/Dense>
 
-namespace umxcpp
-{
-    struct lstm_data
-{
-    Eigen::MatrixXf output_per_direction[3][2];
-    Eigen::MatrixXf output[3];
-    Eigen::MatrixXf h[3][2];
-    Eigen::MatrixXf c[3][2];
+namespace umxcpp {
+struct lstm_data {
+  Eigen::MatrixXf output_per_direction[3][2];
+  Eigen::MatrixXf output[3];
+  Eigen::MatrixXf h[3][2];
+  Eigen::MatrixXf c[3][2];
 };
 
 struct lstm_data create_lstm_data(int hidden_size, int seq_len);
