@@ -150,13 +150,12 @@ int main(int argc, const char **argv)
             polar_to_complex(mix_mag_target, mix_phase);
     }
 
+    std::cout << "Now running wiener filter" << std::endl;
+    auto refined_spectrograms = wiener_filter(
+        spectrogram, target_spectrograms);
+
 #pragma omp parallel for
     for (int target = 0; target < 4; target++) {
-        std::cout << "Now running wiener filter" << std::endl;
-        auto refined_spectrograms = wiener_filter(
-            spectrogram, target_spectrograms);
-
-        // TODO: use refined_spectrograms here
         Eigen::MatrixXf audio_target = istft(refined_spectrograms[target]);
 
         // now write the 4 audio waveforms to files in the output dir

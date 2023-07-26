@@ -58,7 +58,7 @@ file(GLOB SOURCES "src/*.cpp")
 
 # compile library, link against libnyquist
 add_library(umx.cpp.lib SHARED ${SOURCES})
-target_link_libraries(umx.cpp.lib libnyquist ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+target_link_libraries(umx.cpp.lib libnyquist ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} lapacke)
 if(OPENMP_FOUND)
     target_link_libraries(umx.cpp.lib ${OpenMP_CXX_LIBRARIES})
 endif()
