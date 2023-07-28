@@ -8,7 +8,8 @@
 #include <unsupported/Eigen/FFT>
 #include <vector>
 
-namespace umxcpp {
+namespace umxcpp
+{
 
 const int SUPPORTED_SAMPLE_RATE = 44100;
 const int FFT_WINDOW_SIZE = 4096;
