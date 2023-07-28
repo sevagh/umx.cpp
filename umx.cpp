@@ -44,7 +44,7 @@ int main(int argc, const char **argv)
     std::cout << "Number of physical cores: " << nb_cores << std::endl;
     Eigen::setNbThreads(nb_cores - 1);
 
-    StereoWaveform audio = load_audio(wav_file);
+    Eigen::MatrixXf audio = load_audio(wav_file);
 
     // initialize a struct umx_model
     struct umx_model model
@@ -62,17 +62,19 @@ int main(int argc, const char **argv)
 
     // let's get a stereo complex spectrogram first
     std::cout << "Computing STFT" << std::endl;
-    StereoSpectrogramC spectrogram = stft(audio);
+    Eigen::Tensor3dXcf spectrogram = stft(audio);
 
-    std::cout << "spec shape: (incl 2 chan) " << spectrogram.left.size()
-              << " x " << spectrogram.left[0].size() << std::endl;
+    std::cout << "spec shape: (" << spectrogram.dimensions()[0] << ", "
+              << spectrogram.dimensions()[1] << ", "
+              << spectrogram.dimensions()[2] << ")" << std::endl;
 
     std::cout << "Computing STFT magnitude" << std::endl;
     // now let's get a stereo magnitude spectrogram
-    StereoSpectrogramR mix_mag = magnitude(spectrogram);
+    Eigen::Tensor3dXf mix_mag = spectrogram.abs();
 
     std::cout << "Computing STFT phase" << std::endl;
-    StereoSpectrogramR mix_phase = phase(spectrogram);
+    Eigen::Tensor3dXf mix_phase = spectrogram.unaryExpr(
+        [](const std::complex<float> &c) { return std::arg(c); });
 
     // apply umx inference to the magnitude spectrogram
     // first create a ggml_tensor for the input
@@ -82,8 +84,8 @@ int main(int argc, const char **argv)
     // input shape is (nb_frames*nb_samples, nb_channels*nb_bins) i.e. 2049*2
     int nb_bins = 2049;
 
-    int nb_frames = mix_mag.left.size();
-    int nb_real_bins = mix_mag.left[0].size();
+    int nb_frames = mix_mag.dimension(1);
+    int nb_real_bins = mix_mag.dimension(2);
 
     assert(nb_real_bins == nb_bins);
 
@@ -104,154 +106,46 @@ int main(int argc, const char **argv)
         {
             // interleave fft frames from each channel
             // fill first half of 2974/2 bins from left
-            x(i, j) = mix_mag.left[i][j];
+            x(i, j) = mix_mag(0, i, j);
             // fill second half of 2974/2 bins from right
-            x(i, j + nb_bins_cropped) = mix_mag.right[i][j];
+            x(i, j + nb_bins_cropped) = mix_mag(1, i, j);
         }
     }
 
     std::cout << "Running inference with Eigen matrices" << std::endl;
 
-    // clone input mix mag x to operate on targets x_{0,1,2,3}
-    Eigen::MatrixXf x_inputs[4];
+    std::array<Eigen::MatrixXf, 4> x_outputs =
+        umx_inference(&model, x, hidden_size);
 
 #pragma omp parallel for
     for (int target = 0; target < 4; ++target)
     {
-        x_inputs[target] = x;
-// opportunistically apply input scaling and mean
-
-// apply formula x = x*input_scale + input_mean
-#pragma omp parallel for
-        for (int i = 0; i < x_inputs[target].rows(); i++)
-        {
-            x_inputs[target].row(i) = x_inputs[target].row(i).array() *
-                                          model.input_scale[target].array() +
-                                      model.input_mean[target].array();
-        }
-    }
-
-    // create pointer to a Eigen::MatrixXf to modify in the for loop
-    // there are classes in Eigen for this
-
-#pragma omp parallel for
-    for (int target = 0; target < 4; ++target)
-    {
-        // y = x A^T + b
-        // A = weights = (out_features, in_features)
-        // A^T = A transpose = (in_features, out_features)
-        x_inputs[target] = x_inputs[target] * model.fc1_w[target];
-
-// batchnorm1d calculation
-// y=(x-E[x])/(sqrt(Var[x]+ϵ) * gamma + Beta
-#pragma omp parallel for
-        for (int i = 0; i < x_inputs[target].rows(); i++)
-        {
-            x_inputs[target].row(i) =
-                (((x_inputs[target].row(i).array() -
-                   model.bn1_rm[target].array()) /
-                  (model.bn1_rv[target].array() + 1e-5).sqrt()) *
-                     model.bn1_w[target].array() +
-                 model.bn1_b[target].array())
-                    .tanh();
-        }
-
-        // now lstm time
-        int lstm_hidden_size = hidden_size / 2;
-
-        // umx_lstm_forward applies bidirectional 3-layer lstm using a
-        // LSTMCell-like approach
-        // https://pytorch.org/docs/stable/generated/torch.nn.LSTMCell.html
-
-        auto lstm_out_0 = umxcpp::umx_lstm_forward(
-            model, target, x_inputs[target], lstm_hidden_size);
-
-        // now the concat trick from umx for the skip conn
-        //    # apply 3-layers of stacked LSTM
-        //    lstm_out = self.lstm(x)
-        //    # lstm skip connection
-        //    x = torch.cat([x, lstm_out[0]], -1)
-        // concat the lstm_out with the input x
-        Eigen::MatrixXf x_inputs_target_concat(x_inputs[target].rows(),
-                                               x_inputs[target].cols() +
-                                                   lstm_out_0.cols());
-        x_inputs_target_concat.leftCols(x_inputs[target].cols()) =
-            x_inputs[target];
-        x_inputs_target_concat.rightCols(lstm_out_0.cols()) = lstm_out_0;
-
-        x_inputs[target] = x_inputs_target_concat;
-
-        // now time for fc2
-        x_inputs[target] = x_inputs[target] * model.fc2_w[target];
-
-// batchnorm1d calculation
-// y=(x-E[x])/(sqrt(Var[x]+ϵ) * gamma + Beta
-#pragma omp parallel for
-        for (int i = 0; i < x_inputs[target].rows(); i++)
-        {
-            x_inputs[target].row(i) =
-                (((x_inputs[target].row(i).array() -
-                   model.bn2_rm[target].array()) /
-                  (model.bn2_rv[target].array() + 1e-5).sqrt()) *
-                     model.bn2_w[target].array() +
-                 model.bn2_b[target].array())
-                    .cwiseMax(0);
-        }
-
-        x_inputs[target] = x_inputs[target] * model.fc3_w[target];
-
-// batchnorm1d calculation
-// y=(x-E[x])/(sqrt(Var[x]+ϵ) * gamma + Beta
-#pragma omp parallel for
-        for (int i = 0; i < x_inputs[target].rows(); i++)
-        {
-            x_inputs[target].row(i) =
-                ((x_inputs[target].row(i).array() -
-                  model.bn3_rm[target].array()) /
-                 (model.bn3_rv[target].array() + 1e-5).sqrt()) *
-                    model.bn3_w[target].array() +
-                model.bn3_b[target].array();
-        }
-
-// now output scaling
-// apply formula x = x*output_scale + output_mean
-#pragma omp parallel for
-        for (int i = 0; i < x_inputs[target].rows(); i++)
-        {
-            x_inputs[target].row(i) = (x_inputs[target].row(i).array() *
-                                           model.output_scale[target].array() +
-                                       model.output_mean[target].array())
-                                          .cwiseMax(0);
-        }
-
-        // print min and max elements of x_inputs[target]
-        std::cout << "POST-RELU-FINAL x_inputs[target] min: "
-                  << x_inputs[target].minCoeff()
-                  << " x_inputs[target] max: " << x_inputs[target].maxCoeff()
+        std::cout << "POST-RELU-FINAL x_outputs[target] min: "
+                  << x_outputs[target].minCoeff()
+                  << " x_inputs[target] max: " << x_outputs[target].maxCoeff()
                   << std::endl;
 
         // copy mix-mag
-        StereoSpectrogramR mix_mag_target(mix_mag);
+        Eigen::Tensor3dXf mix_mag_target(mix_mag);
 
-// element-wise multiplication, taking into account the stacked outputs of the
-// neural network
+        // element-wise multiplication, taking into account the stacked outputs
+        // of the neural network
 #pragma omp parallel for
-        for (std::size_t i = 0; i < mix_mag.left.size(); i++)
+        for (std::size_t i = 0; i < mix_mag.dimension(1); i++)
         {
 #pragma omp parallel for
-            for (std::size_t j = 0; j < mix_mag.left[0].size(); j++)
+            for (std::size_t j = 0; j < mix_mag.dimension(2); j++)
             {
-                mix_mag_target.left[i][j] *= x_inputs[target](i, j);
-                mix_mag_target.right[i][j] *=
-                    x_inputs[target](i, j + mix_mag.left[0].size());
+                mix_mag_target(0, i, j) *= x_outputs[target](i, j);
+                mix_mag_target(1, i, j) *=
+                    x_outputs[target](i, j + mix_mag.dimension(2));
             }
         }
 
         // now let's get a stereo waveform back first with phase
-        StereoSpectrogramC mix_complex_target =
-            combine(mix_mag_target, mix_phase);
-
-        StereoWaveform audio_target = istft(mix_complex_target);
+        // initial estimate
+        Eigen::MatrixXf audio_target =
+            istft(polar_to_complex(mix_mag_target, mix_phase));
 
         // now write the 4 audio waveforms to files in the output dir
         // using libnyquist

@@ -4,3 +4,6 @@
 [submodule "vendor/libnyquist"]
 	path = vendor/libnyquist
 	url = https://github.com/ddiakopoulos/libnyquist
+[submodule "vendor/eigen"]
+	path = vendor/eigen
+	url = https://gitlab.com/libeigen/eigen
