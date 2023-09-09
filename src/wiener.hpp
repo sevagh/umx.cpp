@@ -42,8 +42,8 @@ struct Tensor5D {
 
     // Method to fill diagonal with 1s for a specific 3D slice
     void fill_diagonal(int dim1, int dim2, float param = 1.0f) {
-        for (int i = 0; i < data[0][0].size(); ++i) {
-            for (int j = 0; j < data[0][0][0].size(); ++j) {
+        for (std::size_t i = 0; i < data[0][0].size(); ++i) {
+            for (std::size_t j = 0; j < data[0][0][0].size(); ++j) {
                 if (i == j) {
                     data[dim1][dim2][i][j][0] = param;
                 }
@@ -53,11 +53,11 @@ struct Tensor5D {
 
     // Method to scale the tensor by a scalar
     void scale_by(float scalar) {
-        for (int i = 0; i < data.size(); ++i) {
-            for (int j = 0; j < data[0].size(); ++j) {
-                for (int k = 0; k < data[0][0].size(); ++k) {
-                    for (int l = 0; l < data[0][0][0].size(); ++l) {
-                        for (int m = 0; m < data[0][0][0][0].size(); ++m) {
+        for (std::size_t i = 0; i < data.size(); ++i) {
+            for (std::size_t j = 0; j < data[0].size(); ++j) {
+                for (std::size_t k = 0; k < data[0][0].size(); ++k) {
+                    for (std::size_t l = 0; l < data[0][0][0].size(); ++l) {
+                        for (std::size_t m = 0; m < data[0][0][0][0].size(); ++m) {
                             data[i][j][k][l][m] *= scalar;
                         }
                     }
@@ -67,11 +67,11 @@ struct Tensor5D {
     }
 
     void setZero() {
-        for (int i = 0; i < data.size(); ++i) {
-            for (int j = 0; j < data[0].size(); ++j) {
-                for (int k = 0; k < data[0][0].size(); ++k) {
-                    for (int l = 0; l < data[0][0][0].size(); ++l) {
-                        for (int m = 0; m < data[0][0][0][0].size(); ++m) {
+        for (std::size_t i = 0; i < data.size(); ++i) {
+            for (std::size_t j = 0; j < data[0].size(); ++j) {
+                for (std::size_t k = 0; k < data[0][0].size(); ++k) {
+                    for (std::size_t l = 0; l < data[0][0][0].size(); ++l) {
+                        for (std::size_t m = 0; m < data[0][0][0][0].size(); ++m) {
                             data[i][j][k][l][m] = 0.0f;
                         }
                     }
@@ -102,10 +102,10 @@ struct Tensor4D {
     }
 
     void setZero() {
-        for (int i = 0; i < data.size(); ++i) {
-            for (int j = 0; j < data[0].size(); ++j) {
-                for (int k = 0; k < data[0][0].size(); ++k) {
-                    for (int l = 0; l < data[0][0][0].size(); ++l) {
+        for (std::size_t i = 0; i < data.size(); ++i) {
+            for (std::size_t j = 0; j < data[0].size(); ++j) {
+                for (std::size_t k = 0; k < data[0][0].size(); ++k) {
+                    for (std::size_t l = 0; l < data[0][0][0].size(); ++l) {
                         data[i][j][k][l] = 0.0f;
                     }
                 }
@@ -134,8 +134,8 @@ struct Tensor3D {
 
     // Method to fill diagonal with param
     void fill_diagonal(float param) {
-        for (int i = 0; i < data[0].size(); ++i) {
-            for (int j = 0; j < data[0][0].size(); ++j) {
+        for (std::size_t i = 0; i < data[0].size(); ++i) {
+            for (std::size_t j = 0; j < data[0][0].size(); ++j) {
                 if (i == j) {
                     data[i][j][0] = param;
                 }
@@ -158,7 +158,7 @@ struct Tensor1D {
     }
 
     void fill(float value) {
-        for (int i = 0; i < data.size(); ++i) {
+        for (std::size_t i = 0; i < data.size(); ++i) {
             data[i] = value;
         }
     }
