@@ -30,23 +30,23 @@ $ python ./scripts/evaluate-demixed-output.py \
     ./umx-py-xl-out \
     'Punkdisco - Oral Hygiene'
 
-vocals          ==> SDR:   7.377  SIR:  16.028  ISR:  15.628  SAR:   8.376
-drums           ==> SDR:   8.086  SIR:  12.205  ISR:  17.904  SAR:   9.055
-bass            ==> SDR:   5.459  SIR:   8.830  ISR:  13.361  SAR:  10.543
-other           ==> SDR:   1.442  SIR:   1.144  ISR:   5.199  SAR:   2.842
+vocals          ==> SDR:   7.695  SIR:  17.312  ISR:  16.426  SAR:   8.322
+drums           ==> SDR:   8.899  SIR:  14.054  ISR:  14.941  SAR:   9.428
+bass            ==> SDR:   8.338  SIR:  14.352  ISR:  14.171  SAR:  10.971
+other           ==> SDR:   2.017  SIR:   6.266  ISR:   6.821  SAR:   2.410
 
 $ python ./scripts/evaluate-demixed-output.py \
     --musdb-root="/MUSDB18-HQ" \
     ./umx-cpp-xl-out \
     'Punkdisco - Oral Hygiene'
 
-vocals          ==> SDR:   7.695  SIR:  17.312  ISR:  16.426  SAR:   8.322
-drums           ==> SDR:   8.899  SIR:  14.054  ISR:  14.941  SAR:   9.428
-bass            ==> SDR:   8.338  SIR:  14.352  ISR:  14.171  SAR:  10.971
-other           ==> SDR:   2.017  SIR:   6.266  ISR:   6.821  SAR:   2.410
+vocals          ==> SDR:   7.750  SIR:  17.510  ISR:  16.195  SAR:   8.321
+drums           ==> SDR:   9.010  SIR:  14.149  ISR:  14.900  SAR:   9.416
+bass            ==> SDR:   8.349  SIR:  14.348  ISR:  14.160  SAR:  10.990
+other           ==> SDR:   1.987  SIR:   6.282  ISR:   6.674  SAR:   2.461
 ```
 
-In runtime, this is actually slower than the PyTorch inference (and probably much slower than a possible Torch C++ inference implementation). For a 4:23 song, PyTorch takes 13s and umx.cpp takes 22s.
+In runtime, this is actually slower than the PyTorch inference (and probably much slower than a possible Torch C++ inference implementation).
 
 ## Motivation
 

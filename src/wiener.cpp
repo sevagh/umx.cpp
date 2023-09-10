@@ -37,8 +37,8 @@ static void invert5D(umxcpp::Tensor5D& M) {
             std::complex<float> det = a * d - b * c;
 
             // Compute the inverse determinant
-            //std::complex<float> invDet = std::conj(det)/std::norm(det);
-            std::complex<float> invDet = 1.0f/det;
+            // INEXPLICABLE 4.0 factor!
+            std::complex<float> invDet = 4.0f*std::conj(det)/std::norm(det);
 
             // Compute the inverse matrix
             std::complex<float> tmp00 = invDet * d;
@@ -106,9 +106,13 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
     Eigen::Tensor3dXf mix_phase = mix_stft.unaryExpr(
         [](const std::complex<float> &c) { return std::arg(c); });
 
+    std::cout << "Wiener-EM: Getting first estimates from naive mix-phase" << std::endl;
+
     for (int target = 0; target < 4; ++target) {
         y[target] = umxcpp::polar_to_complex(targets_mag_spectrograms[target], mix_phase);
     }
+
+    std::cout << "Wiener-EM: Scaling down by max_abs" << std::endl;
 
     // we need to refine the estimates. Scales down the estimates for
     // numerical stability
@@ -149,6 +153,8 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
     const int nb_sources = 4;
     const float eps = WIENER_EPS;
 
+    std::cout << "Wiener-EM: Initialize tensors" << std::endl;
+
     // Create and initialize the 5D tensor
     umxcpp::Tensor3D regularization(nb_channels, nb_channels, 2); // The 3D tensor
     // Fill the diagonal with sqrt(eps) for all 3D slices in dimensions 0 and 1
@@ -163,10 +169,10 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
     Tensor3D v(nb_frames, nb_bins, nb_sources);  // A 3D tensor of zeros
 
     for (int it = 0; it < WIENER_ITERATIONS; ++it) {
-        std::cout << "wiener iter: " << it << std::endl;
-
+        std::cout << "Wiener-EM: iteration: " << it << std::endl;
         // update the PSD as the average spectrogram over channels
         // PSD container is v
+        std::cout << "\tUpdate PSD `v`" << std::endl;
         for (int frame = 0; frame < nb_frames; ++frame) {
             for (int bin = 0; bin < nb_bins; ++bin) {
                 for (int source = 0; source < nb_sources; ++source) {
@@ -186,7 +192,6 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
             }
         }
 
-        std::cout << "begin update spatial covariance matrices R" << std::endl;
         for (int source = 0; source < nb_sources; ++source) {
             R[source].setZero();  // Assume Tensor4d has a method to set all its elements to zero
             weight.fill(WIENER_EPS); // Initialize with small epsilon (assume Tensor1d has a fill method)
@@ -195,6 +200,7 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
             int batchSize = WIENER_EM_BATCH_SIZE > 0 ? WIENER_EM_BATCH_SIZE : nb_frames;
 
             while (pos < nb_frames) {
+                std::cout << "\tCovariance loop for source: " << source << ", pos: " << pos << std::endl;
                 int t_end = std::min(nb_frames, pos + batchSize);
 
                 umxcpp::Tensor5D tempR = calculateCovariance(y[source], pos, t_end);
@@ -238,14 +244,13 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
             // Reset the weight for the next iteration
             weight.fill(0.0f);
         }
-        std::cout << "end update spatial covariance matrices R" << std::endl;
 
         int pos = 0;
         int batchSize = WIENER_EM_BATCH_SIZE > 0 ? WIENER_EM_BATCH_SIZE : nb_frames;
-        std::cout << "while pos < nb_frames loop 2" << std::endl;
         while (pos < nb_frames) {
             int t_end = std::min(nb_frames, pos + batchSize);
 
+            std::cout << "\tMix covariance loop for pos: " << pos << std::endl;
             // Reset y values to zero for this batch
             // Assuming you have a way to set all elements of y between frames pos and t_end to 0.0
             for (int source = 0; source < 4; ++source) {
@@ -261,8 +266,6 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
             // Compute mix covariance matrix Cxx
             //Tensor3D Cxx = regularization;
             Tensor5D Cxx(nb_frames_chunk, nb_bins, nb_channels, nb_channels, 2);
-
-            std::cout << "Cxx dimensions: " << Cxx.data.size() << ", " << Cxx.data[0].size() << ", " << Cxx.data[0][0].size() << ", " << Cxx.data[0][0][0].size() << ", " << Cxx.data[0][0][0][0].size() << std::endl;
 
             // copy regularization into expanded form in middle of broadcast loop
             for (int frame = 0; frame < nb_frames_chunk; ++frame) {
@@ -281,31 +284,12 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
             }
 
             // Invert Cxx
+            std::cout << "\tInvert Cxx and Wiener gain calculation" << std::endl;
             invert5D(Cxx);  // Assuming invertMatrix performs element-wise inversion
             Tensor5D inv_Cxx = Cxx;  // Assuming copy constructor or assignment operator performs deep copy
 
-            float inv_Cxx_min = 100000000.0f;
-            float inv_Cxx_max = -100000000.0f;
-
-            for (int i = 0; i < inv_Cxx.data.size(); ++i) {
-                for (int j = 0; j < inv_Cxx.data[0].size(); ++j) {
-                    for (int k = 0; k < inv_Cxx.data[0][0].size(); ++k) {
-                        for (int l = 0; l < inv_Cxx.data[0][0][0].size(); ++l) {
-                            for (int m = 0; m < inv_Cxx.data[0][0][0][0].size(); ++m) {
-                                inv_Cxx_min = std::min(inv_Cxx_min, inv_Cxx.data[i][j][k][l][m]);
-                                inv_Cxx_max = std::max(inv_Cxx_max, inv_Cxx.data[i][j][k][l][m]);
-                            }
-                        }
-                    }
-                }
-            }
-
-            std::cout << "inv_Cxx dims: " << inv_Cxx.data.size() << ", " << inv_Cxx.data[0].size() << ", " << inv_Cxx.data[0][0].size() << ", " << inv_Cxx.data[0][0][0].size() << ", " << inv_Cxx.data[0][0][0][0].size() << ", " << inv_Cxx_min << ", " << inv_Cxx_max << std::endl;
-
             // Separate the sources
             for (int source = 0; source < nb_sources; ++source) {
-                std::cout << "source: " << source << std::endl;
-
                 // Initialize with zeros
                 // create gain with broadcast size of inv_Cxx
                 Tensor5D gain(nb_frames_chunk, nb_bins, nb_channels, nb_channels, 2);
@@ -327,77 +311,40 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
                     }
                 }
 
-                float gain_min = 10000000.0f;
-                float gain_max = -10000000.0f;
-
-                for (int frame = 0; frame < nb_frames_chunk; ++frame) {
-                    for (int bin = 0; bin < nb_bins; ++bin) {
-                        for (int ch1 = 0; ch1 < nb_channels; ++ch1) {
-                            for (int ch2 = 0; ch2 < nb_channels; ++ch2) {
-                                for (int reim = 0; reim < 2; ++reim) {
-                                    gain_min = std::min(gain_min, gain.data[frame][bin][ch1][ch2][reim]);
-                                    gain_max = std::max(gain_max, gain.data[frame][bin][ch1][ch2][reim]);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                std::cout << "gain dims: " << gain.data.size() << ", " << gain.data[0].size() << ", " << gain.data[0][0].size() << ", " << gain.data[0][0][0].size() << ", " << gain_min << ", " << gain_max << std::endl;
-
-                // so far so good!
-                std::cout << "WIENER GOOD, MATCH SO FAR! regularization, R, v, covariance, Cxx, inv_Cxx (w/ factor of 4), gain!" << std::endl;
-
                 // Element-wise multiplication with v
                 for (int frame = 0; frame < nb_frames_chunk; ++frame) {
                     for (int bin = 0; bin < nb_bins; ++bin) {
                         for (int ch1 = 0; ch1 < nb_channels; ++ch1) {
                             for (int ch2 = 0; ch2 < nb_channels; ++ch2) {
                                 for (int re_im = 0; re_im < 2; ++re_im) { // Assuming last dimension has size 2 (real/imaginary)
-                                    gain.data[frame][bin][ch1][ch2][re_im] *= v.data[frame+pos][bin][source];
+                                    // undoing the inv_Cxx factor of 4.0f
+                                    gain.data[frame][bin][ch1][ch2][re_im] *= v.data[frame+pos][bin][source]/4.0f;
                                 }
                             }
                         }
                     }
                 }
 
-                gain_min = 10000000.0f;
-                gain_max = -10000000.0f;
-
+                std::cout << "\tApply gain to y, source: " << source << ", pos: " << pos << std::endl;
+                // apply it to the mixture
                 for (int frame = 0; frame < nb_frames_chunk; ++frame) {
                     for (int bin = 0; bin < nb_bins; ++bin) {
                         for (int ch1 = 0; ch1 < nb_channels; ++ch1) {
                             for (int ch2 = 0; ch2 < nb_channels; ++ch2) {
-                                for (int reim = 0; reim < 2; ++reim) {
-                                    gain_min = std::min(gain_min, gain.data[frame][bin][ch1][ch2][reim]);
-                                    gain_max = std::max(gain_max, gain.data[frame][bin][ch1][ch2][reim]);
-                                }
+                                float sample_real = y[source](ch2, frame+pos, bin).real();
+                                float sample_imag = y[source](ch2, frame+pos, bin).imag();
+
+                                float a_real = gain.data[frame][bin][ch2][ch1][0];
+                                float a_imag = gain.data[frame][bin][ch2][ch1][1];
+
+                                float b_real = mix_stft(ch1, frame+pos, bin).real();
+                                float b_imag = mix_stft(ch1, frame+pos, bin).imag();
+
+                                y[source](ch2, frame+pos, bin) = std::complex<float>{
+                                    sample_real + (a_real*b_real - a_imag*b_imag),
+                                    sample_imag + (a_real*b_imag + a_imag*b_real)};
+
                             }
-                        }
-                    }
-                }
-
-                std::cout << "gain * v dims: " << gain.data.size() << ", " << gain.data[0].size() << ", " << gain.data[0][0].size() << ", " << gain.data[0][0][0].size() << ", " << gain_min << ", " << gain_max << std::endl;
-
-                //# apply it to the mixture
-                //for i in range(nb_channels):
-                //    y[t, ..., j] = _mul_add(gain[..., i, :], x[t, ..., i, None, :], y[t, ..., j])
-
-                for (int frame = 0; frame < nb_frames_chunk; ++frame) {
-                    for (int bin = 0; bin < nb_bins; ++bin) {
-                        for (int chan = 0; chan < nb_channels; ++chan) {
-                            float sample_real = y[source](0, frame+pos, bin).real();
-                            float sample_imag = y[source](0, frame+pos, bin).imag();
-
-                            float a_real = gain.data[frame][bin][chan][chan][0];
-                            float a_imag = gain.data[frame][bin][chan][chan][1];
-
-                            float b_real = mix_stft(0, frame+pos, bin).real();
-                            float b_imag = mix_stft(0, frame+pos, bin).imag();
-
-                            y[source](chan, frame+pos, bin) = std::complex<float>{
-                                sample_real + (a_real*b_real - a_imag*b_imag),
-                                sample_imag + (a_real*b_imag + a_imag*b_real)};
                         }
                     }
                 }
@@ -418,23 +365,6 @@ umxcpp::wiener_filter(Eigen::Tensor3dXcf &mix_stft,
                     y[source](1, i, j).real()*max_abs,
                     y[source](1, i, j).imag()*max_abs};
             }
-        }
-
-        if (source == 0) {
-            std::cout << "y_debug: " << y[0](0, 14, 587).real() << ", " << y[0](0, 14, 587).imag() << std::endl;
-            std::cout << "y_debug: " << y[0](0, 23, 1023).real() << ", " << y[0](0, 23, 1023).imag() << std::endl;
-
-            float y_min = 10000000.0f;
-            float y_max = -10000000.0f;
-
-            for (int i = 0; i < nb_frames; ++i) {
-                for (int j = 0; j < nb_bins; ++j) {
-                    y_min = std::min(y_min, y[0](0, i, j).real());
-                    y_max = std::max(y_max, y[0](0, i, j).real());
-                }
-            }
-
-            std::cout << "y_debug: " << y_min << ", " << y_max << std::endl;
         }
     }
 
