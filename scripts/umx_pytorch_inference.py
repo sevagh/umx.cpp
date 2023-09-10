@@ -79,7 +79,6 @@ if __name__ == '__main__':
     out_specs = torch.unsqueeze(out_specs.permute(4, 2, 1, 0, 3), dim=0)
     out_audios = istft(out_specs)[0]
     print(out_audios.shape)
-    input()
 
     # get istft
     for i, target_name in enumerate(model.keys()):
