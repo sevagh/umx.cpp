@@ -11,6 +11,7 @@
 #include <thread>
 #include <unsupported/Eigen/FFT>
 #include <vector>
+#include "wiener.hpp"
 
 using namespace umxcpp;
 
@@ -72,10 +73,6 @@ int main(int argc, const char **argv)
     // now let's get a stereo magnitude spectrogram
     Eigen::Tensor3dXf mix_mag = spectrogram.abs();
 
-    std::cout << "Computing STFT phase" << std::endl;
-    Eigen::Tensor3dXf mix_phase = spectrogram.unaryExpr(
-        [](const std::complex<float> &c) { return std::arg(c); });
-
     // apply umx inference to the magnitude spectrogram
     // first create a ggml_tensor for the input
 
@@ -117,6 +114,8 @@ int main(int argc, const char **argv)
     std::array<Eigen::MatrixXf, 4> x_outputs =
         umx_inference(&model, x, hidden_size);
 
+    std::array<Eigen::Tensor3dXf, 4> mag_targets;
+
 #pragma omp parallel for
     for (int target = 0; target < 4; ++target)
     {
@@ -126,7 +125,7 @@ int main(int argc, const char **argv)
                   << std::endl;
 
         // copy mix-mag
-        Eigen::Tensor3dXf mix_mag_target(mix_mag);
+        mag_targets[target] = mix_mag;
 
         // element-wise multiplication, taking into account the stacked outputs
         // of the neural network
@@ -136,17 +135,18 @@ int main(int argc, const char **argv)
 #pragma omp parallel for
             for (std::size_t j = 0; j < mix_mag.dimension(2); j++)
             {
-                mix_mag_target(0, i, j) *= x_outputs[target](i, j);
-                mix_mag_target(1, i, j) *=
+                mag_targets[target](0, i, j) *= x_outputs[target](i, j);
+                mag_targets[target](1, i, j) *=
                     x_outputs[target](i, j + mix_mag.dimension(2));
             }
         }
+    }
 
-        // now let's get a stereo waveform back first with phase
-        // initial estimate
-        Eigen::MatrixXf audio_target =
-            istft(polar_to_complex(mix_mag_target, mix_phase));
+    // now let's get a stereo waveform back with wiener filtering
+    std::array<Eigen::Tensor3dXcf, 4> complex_targets = umxcpp::wiener_filter(spectrogram, mag_targets);
 
+#pragma omp parallel for
+    for (int target = 0; target < 4; ++target) {
         // now write the 4 audio waveforms to files in the output dir
         // using libnyquist
         // join out_dir with "/target_0.wav"
@@ -163,6 +163,7 @@ int main(int argc, const char **argv)
         std::cout << "Writing wav file " << p_target << " to " << out_dir
                   << std::endl;
 
+        Eigen::MatrixXf audio_target = istft(complex_targets[target]);
         umxcpp::write_audio_file(audio_target, p_target);
     }
 }
