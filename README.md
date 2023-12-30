@@ -1,12 +1,65 @@
 # umx.cpp
 
-**:boom: :dizzy: 2023-09-10 update: Wiener-EM is now implemented for maximum performance!**
+C++17 implementation of [Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) (UMX), a PyTorch neural network for music demixing. It uses [libnyquist](https://github.com/ddiakopoulos/libnyquist) to load audio files, the [ggml](https://github.com/ggerganov/ggml) file format to serialize the PyTorch weights of `umxhq` to a binary file format, and [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) to implement the inference of Open-Unmix.
 
-C++17 implementation of [Open-Unmix](https://github.com/sigsep/open-unmix-pytorch) (UMX), a PyTorch neural network for music demixing.
+There are 3 main differences in umx.cpp that deviate from the PyTorch model:
+* **Quantized and compressed weights:** the best-performing [UMX-L](https://zenodo.org/record/5069601) weights are quantized (mostly uint8, uint16 for the final four layers) and saved with the [ggml](https://github.com/ggerganov/ggml) binary file format and then gzipped. This reduces the 425 MB of UMX-L weights down to 45 MB, while achieving similar performance (verified empirically using BSS metrics)
+* **Segmented inference:** we borrow the overlapping segmented inference from [Demucs](https://github.com/facebookresearch/demucs/blob/main/demucs/apply.py#L264-L297) (and in turn [demucs.cpp](https://github.com/sevagh/demucs.cpp/blob/21e76ca781c4411bef073ace06d8e84c3c5c9835/src/model_apply.cpp#L180-L263)), which is very effective at processing a waveform in small chunks while avoiding discontinuities at the left and right boundaries when recombined with its neighboring chunks
+* **Streaming LSTM:** following the above, since we chunk the input waveform, we can adapt the LSTM such that it's temporal sequence length is the chunk length, and each chunk is _streamed_ through the LSTM; again, we verified empirically with BSS metrics that this resulted in a similar overall SDR score while reducing memory and computation footprints
 
-It uses [libnyquist](https://github.com/ddiakopoulos/libnyquist) to load audio files, the [ggml](https://github.com/ggerganov/ggml) file format to serialize the PyTorch weights of `umxhq` and `umxl` to a binary file format, and [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) (+ OpenMP) to implement the inference of Open-Unmix.
+## Open-Unmix (UMX-L)
 
-The float32 weights of UMX are quantized to uint16 during the conversion to the binary ggml format. The size on disk for umx.cpp's weights files are therefore ~50% of the original weights (216MB vs. 432MB for umxl, 68MB vs. 136MB for umxhq), with identical BSS results.
+MUSDB18-HQ test track 'Zeno - Signs':
+
+'Zeno - Signs', fully segmented (60s) inference + wiener + streaming lstm + uint8/16-quantized gzipped model file:
+```
+vocals          ==> SDR:   6.836  SIR:  16.416  ISR:  14.015  SAR:   7.065
+drums           ==> SDR:   7.434  SIR:  14.580  ISR:  12.057  SAR:   8.906
+bass            ==> SDR:   2.445  SIR:   4.817  ISR:   5.349  SAR:   3.623
+other           ==> SDR:   6.234  SIR:   9.421  ISR:  12.515  SAR:   7.611
+```
+
+'Zeno - Signs', fully segmented (60s) inference + wiener + streaming lstm, no uint8 quantization:
+```
+vocals          ==> SDR:   6.830  SIR:  16.421  ISR:  14.044  SAR:   7.104
+drums           ==> SDR:   7.425  SIR:  14.570  ISR:  12.062  SAR:   8.905
+bass            ==> SDR:   2.462  SIR:   4.859  ISR:   5.346  SAR:   3.566
+other           ==> SDR:   6.197  SIR:   9.437  ISR:  12.519  SAR:   7.627
+```
+
+'Zeno - Signs', unsegmented inference (crashes with large tracks) w/ streaming lstm + wiener:
+```
+vocals          ==> SDR:   6.846  SIR:  16.382  ISR:  13.897  SAR:   7.024
+drums           ==> SDR:   7.679  SIR:  14.462  ISR:  12.606  SAR:   9.001
+bass            ==> SDR:   2.386  SIR:   4.504  ISR:   5.802  SAR:   3.731
+other           ==> SDR:   6.020  SIR:   9.854  ISR:  11.963  SAR:   7.472
+```
+
+Original release results on 'Zeno - Signs' (no streaming LSTM, no Wiener filtering):
+```
+vocals          ==> SDR:   6.550  SIR:  14.583  ISR:  13.820  SAR:   6.974
+drums           ==> SDR:   6.538  SIR:  11.209  ISR:  11.163  SAR:   8.317
+bass            ==> SDR:   1.646  SIR:   0.931  ISR:   5.261  SAR:   2.944
+other           ==> SDR:   5.190  SIR:   6.623  ISR:  10.221  SAR:   8.599
+```
+
+* Streaming UMX LSTM module for longer tracks with Demucs overlapping segment inference
+
+Testing 'Georgia Wonder - Siren' (largest MUSDB track) for memory usage with 60s segments:
+```
+vocals          ==> SDR:   5.858  SIR:  10.880  ISR:  14.336  SAR:   6.187
+drums           ==> SDR:   7.654  SIR:  14.933  ISR:  11.459  SAR:   8.466
+bass            ==> SDR:   7.256  SIR:  12.007  ISR:  10.743  SAR:   6.757
+other           ==> SDR:   4.699  SIR:   7.452  ISR:   9.142  SAR:   4.298
+```
+
+vs. pytorch inference (w/ wiener):
+```
+vocals          ==> SDR:   5.899  SIR:  10.766  ISR:  14.348  SAR:   6.187
+drums           ==> SDR:   7.939  SIR:  14.676  ISR:  12.485  SAR:   8.383
+bass            ==> SDR:   7.576  SIR:  12.712  ISR:  11.188  SAR:   6.951
+other           ==> SDR:   4.624  SIR:   7.937  ISR:   8.845  SAR:   4.270
+```
 
 ## Performance
 
@@ -74,7 +127,7 @@ $ mamba activate umxcpp
 $ python -m pip install -r ./scripts/requirements.txt
 ```
 
-2. Dump Open-Unmix weights to ggml files (use argument `--model=umxl`, `--model=umxhq` to switch between the two best pretrained models):
+2. Dump Open-Unmix weights to ggml files (use argument `--model=umxl`, `--model=umxhq` to switch between the two best pretrained models)\*:
 ```
 $ python ./scripts/convert-pth-to-ggml.py --model=umxl ./ggml-umxl
 ...
@@ -85,20 +138,20 @@ Processing variable:  bn3.bias  with shape:  (4098,)
 Processing variable:  bn3.running_mean  with shape:  (4098,)
 Processing variable:  bn3.running_var  with shape:  (4098,)
 Skipping layer bn3.num_batches_tracked
-Done. Output file:  ggml-umxl/ggml-model-umxl-other-u16.bin
-
+Done. Output file:  ggml-models/ggml-model-umxl-u8.bin
 ```
+\*: :warning: my script can no longer find `umxhq` files on Zenodo, so `umxl` is the new default
 
-This will load the model using PyTorch Torchhub (which implicitly downloads the weights files to the hidden torchhub folder), locate the weights files, and dump them using the [ggml](http://ggml.ai/) file format:
+This will load the model using PyTorch Torchhub (which implicitly downloads the weights files to the hidden torchhub folder), locate the weights files, and dump them using the [ggml](http://ggml.ai/) file format with mixed uint8 and uint16 quantization, which you can then gzip:
 ```
-$ ls -latrh ggml-umxl/
-total 216M
-drwxrwxr-x  2 sevagh sevagh 4.0K Jun 28 10:14 .
-drwxrwxr-x 13 sevagh sevagh 4.0K Jun 30 10:57 ..
--rw-rw-r--  1 sevagh sevagh 54M Jun 30 11:06 ggml-model-umxl-vocals-u16.bin
--rw-rw-r--  1 sevagh sevagh 54M Jun 30 11:06 ggml-model-umxl-drums-u16.bin
--rw-rw-r--  1 sevagh sevagh 54M Jun 30 11:06 ggml-model-umxl-bass-u16.bin
--rw-rw-r--  1 sevagh sevagh 54M Jun 30 11:06 ggml-model-umxl-other-u16.bin
+# gzip in-place
+$ gzip -k ./ggml-models/ggml-model-umxl-u8.bin
+$ ls -latrh ggml-models/
+total 177M
+-rw-rw-r--  1 sevagh sevagh  45M Dec 30 08:25 ggml-model-umxl-u8.bin.gz
+drwxrwxr-x 13 sevagh sevagh 4.0K Dec 30 09:13 ..
+drwxrwxr-x  2 sevagh sevagh 4.0K Dec 30 09:33 .
+-rw-rw-r--  1 sevagh sevagh 132M Dec 30 09:33 ggml-model-umxl-u8.bin
 ```
 
 3. Install C++ dependencies, e.g. CMake, gcc, C++/g++, Eigen, OpenMP for your OS - my instructions are for Pop!\_OS 22.04:
@@ -122,55 +175,50 @@ Usage: ./umx.cpp.main <model dir> <wav file> <out dir>
 $ ./umx.cpp.main ./ggml-umxl ./test.wav ./demix-out-umxl
 umx.cpp Main driver program
 Number of physical cores: 32
-Input Samples: 23222488
-Length in seconds: 263.294
+Input Samples: 20672662
+Length in seconds: 234.384
 Number of channels: 2
 load_umx_model: loading model
-Discovered model file "../ggml-umxl/ggml-model-umxl-other-u16.bin" in model dir../ggml-umxl/
-Discovered model file "../ggml-umxl/ggml-model-umxl-drums-u16.bin" in model dir../ggml-umxl/
-Discovered model file "../ggml-umxl/ggml-model-umxl-vocals-u16.bin" in model dir../ggml-umxl/
-Discovered model file "../ggml-umxl/ggml-model-umxl-bass-u16.bin" in model dir../ggml-umxl/
-Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-bass-u16.bin
-Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-drums-u16.bin
-Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-other-u16.bin
-Checking the magic of model_file ../ggml-umxl/ggml-model-umxl-vocals-u16.bin
+Decompressing model_file... ../ggml-models/ggml-model-umxl-u8.bin.gz
+Checking the magic of model_file ../ggml-models/ggml-model-umxl-u8.bin.gz
 Loaded umx model with hidden size 1024
-Loading weights from model_file ../ggml-umxl/ggml-model-umxl-bass-u16.bin into target 0
+Loading weights from model_file ../ggml-models/ggml-model-umxl-u8.bin.gz
+Loading target 0
 Loading tensor input_mean with shape [1487, 1]
-      input_mean: [ 1487,     1], type = float,   0.01 MB
-Loading tensor input_scale with shape [1487, 1]
-     input_scale: [ 1487,     1], type = float,   0.01 MB
-Loading tensor output_scale with shape [2049, 1]
-    output_scale: [ 2049,     1], type = float,   0.01 MB
-Loading tensor output_mean with shape [2049, 1]
-     output_mean: [ 2049,     1], type = float,   0.01 MB
-Loading tensor fc1.weight with shape [2974, 1024]
-      fc1.weight: [ 2974,  1024], type = float,  11.62 MB
-Loading tensor bn1.weight with shape [1024, 1]
-      bn1.weight: [ 1024,     1], type = float,   0.00 MB
-Loading tensor bn1.bias with shape [1024, 1]
-        bn1.bias: [ 1024,     1], type = float,   0.00 MB
-Loading tensor bn1.running_mean with shape [1024, 1]
-bn1.running_mean: [ 1024,     1], type = float,   0.00 MB
-Loading tensor bn1.running_var with shape [1024, 1]
-
+      input_mean: [ 1487,     1], type = float,   0.00 MB
+Loading target 0
 ... <truncated>
-
-Loaded model (172 tensors, 215.68 MB) in 0.609294 s
+Loaded model (172 tensors, 131.93 MB) in 1.271085 s
 umx_model_load returned true
-Computing STFT
-spec shape: (incl 2 chan) 11340 x 2049
-Computing STFT magnitude
-Computing STFT phase
-Running inference with Eigen matrices
-
-Writing wav file "./demix-out-umxl/target_0.wav" to ./demix-out-umxl
+Per-segment progress: 0.166667
+2., apply model w/ split, offset: 0, chunk shape: (2, 2646000)
+Generating spectrograms
+populate eigen matrixxf
+Input scaling
+Target 0 fc1
+Target 0 bn1
+Target 0 lstm
+Target 0 fc2
+Target 0 bn2
+Target 0 fc3
+Target 0 bn3
+Target 0 output scaling
+Multiply mix mag with computed mask
+Multiply mix mag with computed mask
+... <truncated>
+Getting complex spec from wiener filtering
+Wiener-EM: Getting first estimates from naive mix-phase
+Wiener-EM: Scaling down by max_abs
+Wiener-EM: Initialize tensors
+... <truncated>
+Getting waveforms from istft
+Writing wav file Writing wav file Writing wav file "./umx-cpp-out/target_2.wav""./umx-cpp-out/target_3.wav" to ./umx-cpp-out
+ to ./umx-cpp-out
+"./umx-cpp-out/target_1.wav" to ./umx-cpp-out
+Writing wav file "./umx-cpp-out/target_0.wav" to ./umx-cpp-out
 Encoder Status: 0
-Writing wav file "./demix-out-umxl/target_2.wav" to ./demix-out-umxl
 Encoder Status: 0
-Writing wav file "./demix-out-umxl/target_1.wav" to ./demix-out-umxl
 Encoder Status: 0
-Writing wav file "./demix-out-umxl/target_3.wav" to ./demix-out-umxl
 Encoder Status: 0
 ```
 
