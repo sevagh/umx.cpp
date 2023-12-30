@@ -50,8 +50,13 @@ TEST(DSP_STFT, STFTRoundtripRandWaveform)
         audio_in(1, i) = (float)rand() / (float)RAND_MAX;
     }
 
+    struct umxcpp::stft_buffers reusable_stft_buf(4096);
+    reusable_stft_buf.waveform = audio_in;
+
     // compute the stft
-    Eigen::Tensor3dXcf spec = umxcpp::stft(audio_in);
+    umxcpp::stft(reusable_stft_buf);
+
+    Eigen::Tensor3dXcf spec = reusable_stft_buf.spec;
 
     // check the number of frequency bins per frames, first and last
     auto n_frames = spec.dimension(1);
@@ -60,7 +65,8 @@ TEST(DSP_STFT, STFTRoundtripRandWaveform)
 
     EXPECT_EQ(spec.dimension(2), 2049);
 
-    Eigen::MatrixXf audio_out = umxcpp::istft(spec);
+    umxcpp::istft(reusable_stft_buf);
+    Eigen::MatrixXf audio_out = reusable_stft_buf.waveform;
 
     EXPECT_EQ(audio_in.rows(), audio_out.rows());
     EXPECT_EQ(audio_in.cols(), audio_out.cols());
@@ -79,8 +85,12 @@ TEST(DSP_STFT, STFTRoundtripGlockenspiel)
 {
     Eigen::MatrixXf audio_in = umxcpp::load_audio("../test/data/gspi_mono.wav");
 
+    struct umxcpp::stft_buffers reusable_stft_buf(4096);
+    reusable_stft_buf.waveform = audio_in;
+
     // compute the stft
-    Eigen::Tensor3dXcf spec = umxcpp::stft(audio_in);
+    umxcpp::stft(reusable_stft_buf);
+    Eigen::Tensor3dXcf spec = reusable_stft_buf.spec;
 
     // check the number of frequency bins per frames, first and last
     auto n_frames = spec.dimension(1);
@@ -89,7 +99,8 @@ TEST(DSP_STFT, STFTRoundtripGlockenspiel)
 
     EXPECT_EQ(spec.dimension(2), 2049);
 
-    Eigen::MatrixXf audio_out = umxcpp::istft(spec);
+    umxcpp::istft(reusable_stft_buf);
+    Eigen::MatrixXf audio_out = reusable_stft_buf.waveform;
 
     EXPECT_EQ(audio_in.rows(), audio_out.rows());
     EXPECT_EQ(audio_in.cols(), audio_out.cols());
@@ -108,8 +119,12 @@ TEST(DSP_STFT, MagnitudePhaseCombineMono)
 {
     Eigen::MatrixXf audio_in = umxcpp::load_audio("../test/data/gspi_mono.wav");
 
+    struct umxcpp::stft_buffers reusable_stft_buf(4096);
+    reusable_stft_buf.waveform = audio_in;
+
     // compute the stft
-    Eigen::Tensor3dXcf spec = umxcpp::stft(audio_in);
+    umxcpp::stft(reusable_stft_buf);
+    Eigen::Tensor3dXcf spec = reusable_stft_buf.spec;
 
     // compute the magnitude and phase
     Eigen::Tensor3dXf mag = spec.unaryExpr([](const std::complex<float> &c)
@@ -163,8 +178,12 @@ TEST(DSP_STFT, MagnitudePhaseCombineMono)
         }
     }
 
+    // replace spec with spec2
+    reusable_stft_buf.spec = spec2;
+
     // compute the istft
-    Eigen::MatrixXf audio_out = umxcpp::istft(spec2);
+    umxcpp::istft(reusable_stft_buf);
+    Eigen::MatrixXf audio_out = reusable_stft_buf.waveform;
 
     EXPECT_EQ(audio_in.rows(), audio_out.rows());
     EXPECT_EQ(audio_in.cols(), audio_out.cols());
@@ -184,8 +203,12 @@ TEST(DSP_STFT, MagnitudePhaseCombineStereo)
     Eigen::MatrixXf audio_in =
         umxcpp::load_audio("../test/data/gspi_stereo.wav");
 
+    struct umxcpp::stft_buffers reusable_stft_buf(4096);
+    reusable_stft_buf.waveform = audio_in;
+
     // compute the stft
-    Eigen::Tensor3dXcf spec = umxcpp::stft(audio_in);
+    umxcpp::stft(reusable_stft_buf);
+    Eigen::Tensor3dXcf spec = reusable_stft_buf.spec;
 
     // compute the magnitude and phase
     Eigen::Tensor3dXf mag = spec.unaryExpr([](const std::complex<float> &c)
@@ -231,8 +254,12 @@ TEST(DSP_STFT, MagnitudePhaseCombineStereo)
         }
     }
 
+    // replace spec with spec2
+    reusable_stft_buf.spec = spec2;
+
     // compute the istft
-    Eigen::MatrixXf audio_out = umxcpp::istft(spec2);
+    umxcpp::istft(reusable_stft_buf);
+    Eigen::MatrixXf audio_out = reusable_stft_buf.waveform;
 
     EXPECT_EQ(audio_in.rows(), audio_out.rows());
     EXPECT_EQ(audio_in.cols(), audio_out.cols());

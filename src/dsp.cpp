@@ -101,53 +101,160 @@ void umxcpp::write_audio_file(const Eigen::MatrixXf &waveform,
 }
 
 // forward declaration of inner stft
-std::vector<std::vector<std::complex<float>>>
-stft_inner(const std::vector<float> &waveform, const std::vector<float> &window,
-           int nfft, int hop_size);
+void stft_inner(struct umxcpp::stft_buffers &stft_buf, Eigen::FFT<float> &cfg);
 
-std::vector<float>
-istft_inner(const std::vector<std::vector<std::complex<float>>> &input,
-            const std::vector<float> &window, int nfft, int hop_size);
-
-std::vector<float> hann_window(int window_size)
-{
-    // create a periodic hann window
-    // by generating L+1 points and deleting the last one
-    std::size_t N = window_size + 1;
-
-    std::vector<float> window(N);
-    auto floatN = (float)(N);
-
-    for (std::size_t n = 0; n < N; ++n)
-    {
-        window[n] = 0.5F * (1.0F - cosf(2.0F * PI * (float)n / (floatN - 1)));
-    }
-    // delete the last element
-    window.pop_back();
-    return window;
-}
+void istft_inner(struct umxcpp::stft_buffers &stft_buf, Eigen::FFT<float> &cfg);
 
 // reflect padding
-void pad_signal(std::vector<float> &signal, int n_fft)
+void pad_signal(struct umxcpp::stft_buffers &stft_buf)
 {
-    int pad = n_fft / 2;
-    std::vector<float> pad_start(signal.begin(), signal.begin() + pad);
-    std::vector<float> pad_end(signal.end() - pad, signal.end());
-    std::reverse(pad_start.begin(), pad_start.end());
-    std::reverse(pad_end.begin(), pad_end.end());
-    signal.insert(signal.begin(), pad_start.begin(), pad_start.end());
-    signal.insert(signal.end(), pad_end.begin(), pad_end.end());
+    // copy from stft_buf.padded_waveform_mono_in+pad into stft_buf.pad_start,
+    // stft_buf.pad_end
+    std::copy_n(stft_buf.padded_waveform_mono_in.begin() + stft_buf.pad,
+                stft_buf.pad, stft_buf.pad_start.begin());
+    std::copy_n(stft_buf.padded_waveform_mono_in.end() - 2 * stft_buf.pad,
+                stft_buf.pad, stft_buf.pad_end.begin());
+
+    std::reverse(stft_buf.pad_start.begin(), stft_buf.pad_start.end());
+    std::reverse(stft_buf.pad_end.begin(), stft_buf.pad_end.end());
+
+    // copy stft_buf.pad_start into stft_buf.padded_waveform_mono_in
+    std::copy_n(stft_buf.pad_start.begin(), stft_buf.pad,
+                stft_buf.padded_waveform_mono_in.begin());
+
+    // copy stft_buf.pad_end into stft_buf.padded_waveform_mono_in
+    std::copy_n(stft_buf.pad_end.begin(), stft_buf.pad,
+                stft_buf.padded_waveform_mono_in.end() - stft_buf.pad);
 }
 
-// reflect unpadding
-void unpad_signal(std::vector<float> &signal, int n_fft)
+Eigen::FFT<float> get_fft_cfg()
 {
-    int pad = n_fft / 2;
-    signal.erase(signal.begin(),
-                 signal.begin() + pad); // remove 'pad' elements from the start
+    Eigen::FFT<float> cfg;
 
-    auto it = signal.end() - pad;
-    signal.erase(it, signal.end()); // remove 'pad' elements from the end
+    cfg.SetFlag(Eigen::FFT<float>::Speedy);
+    cfg.SetFlag(Eigen::FFT<float>::HalfSpectrum);
+    cfg.SetFlag(Eigen::FFT<float>::Unscaled);
+
+    return cfg;
+}
+
+void umxcpp::stft(struct stft_buffers &stft_buf)
+{
+    // get the fft config
+    Eigen::FFT<float> cfg = get_fft_cfg();
+
+    /*****************************************/
+    /*  operate on each channel sequentially */
+    /*****************************************/
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        Eigen::VectorXf row_vec = stft_buf.waveform.row(channel);
+
+        std::copy_n(row_vec.data(), row_vec.size(),
+                    stft_buf.padded_waveform_mono_in.begin() + stft_buf.pad);
+
+        // apply padding equivalent to center padding with center=True
+        // in torch.stft:
+        // https://pytorch.org/docs/stable/generated/torch.stft.html
+
+        // reflect pads stft_buf.padded_waveform_mono in-place
+        pad_signal(stft_buf);
+
+        // does forward fft on stft_buf.padded_waveform_mono, stores spectrum in
+        // complex_spec_mono
+        stft_inner(stft_buf, cfg);
+
+        for (int i = 0; i < stft_buf.nb_frames; ++i)
+        {
+            for (int j = 0; j < stft_buf.nb_bins; ++j)
+            {
+                stft_buf.spec(channel, i, j) = stft_buf.complex_spec_mono[i][j];
+            }
+        }
+    }
+}
+
+void umxcpp::istft(struct stft_buffers &stft_buf)
+{
+    // get the fft config
+    Eigen::FFT<float> cfg = get_fft_cfg();
+
+    /*****************************************/
+    /*  operate on each channel sequentially */
+    /*****************************************/
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        // Populate the nested vectors
+        for (int i = 0; i < stft_buf.nb_frames; ++i)
+        {
+            for (int j = 0; j < stft_buf.nb_bins; ++j)
+            {
+                stft_buf.complex_spec_mono[i][j] = stft_buf.spec(channel, i, j);
+            }
+        }
+
+        // does inverse fft on stft_buf.complex_spec_mono, stores waveform in
+        // padded_waveform_mono
+        istft_inner(stft_buf, cfg);
+
+        // copies waveform_mono into stft_buf.waveform past first pad samples
+        stft_buf.waveform.row(channel) = Eigen::Map<Eigen::MatrixXf>(
+            stft_buf.padded_waveform_mono_out.data() + stft_buf.pad, 1,
+            stft_buf.padded_waveform_mono_out.size() - FFT_WINDOW_SIZE);
+    }
+}
+
+void stft_inner(struct umxcpp::stft_buffers &stft_buf, Eigen::FFT<float> &cfg)
+{
+    int frame_idx = 0;
+
+    // Loop over the waveform with a stride of hop_size
+    for (std::size_t start = 0;
+         start <=
+         stft_buf.padded_waveform_mono_in.size() - umxcpp::FFT_WINDOW_SIZE;
+         start += umxcpp::FFT_HOP_SIZE)
+    {
+        // Apply window and run FFT
+        for (int i = 0; i < umxcpp::FFT_WINDOW_SIZE; ++i)
+        {
+            stft_buf.windowed_waveform_mono[i] =
+                stft_buf.padded_waveform_mono_in[start + i] *
+                stft_buf.window[i];
+        }
+        cfg.fwd(stft_buf.complex_spec_mono[frame_idx++],
+                stft_buf.windowed_waveform_mono);
+    }
+}
+
+void istft_inner(struct umxcpp::stft_buffers &stft_buf, Eigen::FFT<float> &cfg)
+{
+    // clear padded_waveform_mono
+    std::fill(stft_buf.padded_waveform_mono_out.begin(),
+              stft_buf.padded_waveform_mono_out.end(), 0.0f);
+
+    // Loop over the input with a stride of (hop_size)
+    for (std::size_t start = 0;
+         start < stft_buf.nb_frames * umxcpp::FFT_HOP_SIZE;
+         start += umxcpp::FFT_HOP_SIZE)
+    {
+        // Run iFFT
+        cfg.inv(stft_buf.windowed_waveform_mono,
+                stft_buf.complex_spec_mono[start / umxcpp::FFT_HOP_SIZE]);
+
+        // Apply window and add to output
+        for (int i = 0; i < umxcpp::FFT_WINDOW_SIZE; ++i)
+        {
+            // x[start+i] is the sum of squared window values
+            // https://github.com/librosa/librosa/blob/main/librosa/core/spectrum.py#L613
+            // 1e-8f is a small number to avoid division by zero
+            stft_buf.padded_waveform_mono_out[start + i] +=
+                stft_buf.windowed_waveform_mono[i] * stft_buf.window[i] * 1.0f /
+                float(umxcpp::FFT_WINDOW_SIZE) /
+                (stft_buf.normalized_window[start + i] + 1e-8f);
+        }
+    }
 }
 
 Eigen::Tensor3dXcf umxcpp::polar_to_complex(const Eigen::Tensor3dXf &magnitude,
@@ -179,190 +286,4 @@ Eigen::Tensor3dXcf umxcpp::polar_to_complex(const Eigen::Tensor3dXf &magnitude,
     }
 
     return complex_spectrogram;
-}
-
-Eigen::Tensor3dXcf umxcpp::stft(const Eigen::MatrixXf &audio)
-{
-    auto window = hann_window(FFT_WINDOW_SIZE);
-
-    // apply padding equivalent to center padding with center=True
-    // in torch.stft:
-    // https://pytorch.org/docs/stable/generated/torch.stft.html
-
-    std::vector<float> audio_left(audio.row(0).size());
-    Eigen::VectorXf row_vec = audio.row(0);
-    std::copy_n(row_vec.data(), row_vec.size(), audio_left.begin());
-
-    std::vector<float> audio_right(audio.row(1).size());
-    row_vec = audio.row(1);
-    std::copy_n(row_vec.data(), row_vec.size(), audio_right.begin());
-
-    pad_signal(audio_left, FFT_WINDOW_SIZE);
-    pad_signal(audio_right, FFT_WINDOW_SIZE);
-
-    auto stft_left =
-        stft_inner(audio_left, window, FFT_WINDOW_SIZE, FFT_HOP_SIZE);
-    auto stft_right =
-        stft_inner(audio_right, window, FFT_WINDOW_SIZE, FFT_HOP_SIZE);
-
-    // get the size of rows and cols
-    int rows = stft_left.size();
-    int cols = stft_left[0].size();
-
-    Eigen::Tensor3dXcf spec(2, rows, cols);
-
-    for (int i = 0; i < rows; ++i)
-    {
-        for (int j = 0; j < cols; ++j)
-        {
-            spec(0, i, j) = stft_left[i][j];
-            spec(1, i, j) = stft_right[i][j];
-        }
-    }
-
-    return spec;
-}
-
-Eigen::MatrixXf umxcpp::istft(const Eigen::Tensor3dXcf &spec)
-{
-    auto window = hann_window(FFT_WINDOW_SIZE);
-
-    int rows = spec.dimension(1);
-    int cols = spec.dimension(2);
-
-    // Create the nested vectors
-    std::vector<std::vector<std::complex<float>>> stft_left(
-        rows, std::vector<std::complex<float>>(cols));
-    std::vector<std::vector<std::complex<float>>> stft_right(
-        rows, std::vector<std::complex<float>>(cols));
-
-    // Populate the nested vectors
-    for (int i = 0; i < rows; ++i)
-    {
-        for (int j = 0; j < cols; ++j)
-        {
-            stft_left[i][j] = spec(0, i, j);
-            stft_right[i][j] = spec(1, i, j);
-        }
-    }
-
-    std::vector<float> chn_left =
-        istft_inner(stft_left, window, FFT_WINDOW_SIZE, FFT_HOP_SIZE);
-    std::vector<float> chn_right =
-        istft_inner(stft_right, window, FFT_WINDOW_SIZE, FFT_HOP_SIZE);
-
-    unpad_signal(chn_left, FFT_WINDOW_SIZE);
-    unpad_signal(chn_right, FFT_WINDOW_SIZE);
-
-    Eigen::MatrixXf audio(2, chn_left.size());
-
-    audio.row(0) =
-        Eigen::Map<Eigen::MatrixXf>(chn_left.data(), 1, chn_left.size());
-    audio.row(1) =
-        Eigen::Map<Eigen::MatrixXf>(chn_right.data(), 1, chn_right.size());
-
-    return audio;
-}
-
-static Eigen::FFT<float> get_fft_cfg()
-{
-    Eigen::FFT<float> cfg;
-    cfg.SetFlag(Eigen::FFT<float>::Speedy);
-    cfg.SetFlag(Eigen::FFT<float>::HalfSpectrum);
-    cfg.SetFlag(Eigen::FFT<float>::Unscaled);
-    return cfg;
-}
-
-std::vector<std::vector<std::complex<float>>>
-stft_inner(const std::vector<float> &waveform, const std::vector<float> &window,
-           int nfft, int hop_size)
-{
-    // Check input
-    if (waveform.size() < nfft || window.size() != nfft)
-    {
-        throw std::invalid_argument(
-            "Waveform size must be >= nfft, window size must be == nfft.");
-    }
-
-    // Output container
-    std::vector<std::vector<std::complex<float>>> output;
-
-    // Create an FFT object
-    Eigen::FFT<float> cfg = get_fft_cfg();
-
-    // Loop over the waveform with a stride of hop_size
-    for (std::size_t start = 0; start <= waveform.size() - nfft;
-         start += hop_size)
-    {
-        // Apply window and run FFT
-        std::vector<float> windowed(nfft);
-        std::vector<std::complex<float>> spectrum(nfft / 2 + 1);
-
-        for (int i = 0; i < nfft; ++i)
-        {
-            windowed[i] = waveform[start + i] * window[i];
-        }
-        cfg.fwd(spectrum, windowed);
-
-        // Add the spectrum to output
-        output.push_back(spectrum);
-    }
-
-    return output;
-}
-
-std::vector<float>
-istft_inner(const std::vector<std::vector<std::complex<float>>> &input,
-            const std::vector<float> &window, int nfft, int hop_size)
-{
-    // Check input
-    if (input.empty() || input[0].size() != nfft / 2 + 1 ||
-        window.size() != nfft)
-    {
-        throw std::invalid_argument("Input size is not compatible with nfft "
-                                    "or window size does not match nfft.");
-    }
-
-    // Compute the window normalization factor
-    // using librosa window_sumsquare to compute the squared window
-    // https://github.com/librosa/librosa/blob/main/librosa/filters.py#L1545
-
-    float win_n = nfft + hop_size * (input.size() - 1);
-    std::vector<float> x(win_n, 0.0f);
-
-    for (int i = 0; i < input.size(); ++i)
-    {
-        auto sample = i * hop_size;
-        for (int j = sample; j < std::min((int)win_n, sample + nfft); ++j)
-        {
-            x[j] += window[j - sample] * window[j - sample];
-        }
-    }
-
-    // Output container
-    std::vector<float> output(win_n, 0.0f);
-
-    // Create an FFT object
-    Eigen::FFT<float> cfg = get_fft_cfg();
-
-    // Loop over the input with a stride of (hop_size)
-    for (std::size_t start = 0; start < input.size() * hop_size;
-         start += hop_size)
-    {
-        // Run iFFT
-        std::vector<float> waveform(nfft);
-        cfg.inv(waveform, input[start / hop_size]);
-
-        // Apply window and add to output
-        for (int i = 0; i < nfft; ++i)
-        {
-            // x[start+i] is the sum of squared window values
-            // https://github.com/librosa/librosa/blob/main/librosa/core/spectrum.py#L613
-            // 1e-8f is a small number to avoid division by zero
-            output[start + i] += waveform[i] * window[i] * 1.0f / float(nfft) /
-                                 (x[start + i] + 1e-8f);
-        }
-    }
-
-    return output;
 }
