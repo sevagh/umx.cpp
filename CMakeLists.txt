@@ -43,6 +43,12 @@ add_subdirectory(vendor/libnyquist)
 # add library Eigen3
 include_directories(vendor/eigen)
 
+# Add subdirectory for zlib in vendor (required for umx)
+include_directories(${CMAKE_BINARY_DIR}/vendor/zlib)
+include_directories(vendor/zlib)
+add_definitions(-D_NO_LARGEFILE64_SOURCE -D_LARGEFILE_SOURCE)
+add_subdirectory(vendor/zlib)
+
 # add OpenBLAS for blas + lapack
 find_package(BLAS REQUIRED)
 find_package(LAPACK REQUIRED)
@@ -58,7 +64,7 @@ file(GLOB SOURCES "src/*.cpp")
 
 # compile library, link against libnyquist
 add_library(umx.cpp.lib SHARED ${SOURCES})
-target_link_libraries(umx.cpp.lib libnyquist ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} lapacke)
+target_link_libraries(umx.cpp.lib libnyquist ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} lapacke zlibstatic)
 if(OPENMP_FOUND)
     target_link_libraries(umx.cpp.lib ${OpenMP_CXX_LIBRARIES})
 endif()

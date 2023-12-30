@@ -10,17 +10,17 @@ import argparse
 from pathlib import Path
 
 
-def quantize(array):
+def quantize(array, qtype=np.uint8):
     # Calculate min and max of the array
     min_val = np.min(array)
     max_val = np.max(array)
 
     # Calculate scale and offset for quantization
-    scale = (max_val - min_val) / 65535.0
+    scale = (max_val - min_val) / (float)(np.iinfo(qtype).max-1)
     offset = min_val
 
     # Quantize array
-    quantized_array = np.round((array - offset) / scale).astype(np.uint16)
+    quantized_array = np.round((array - offset) / scale).astype(qtype)
 
     # Return quantized array, scale and offset
     return quantized_array, scale, offset
@@ -72,7 +72,7 @@ LAYERS_TO_SKIP = [
 if __name__ == '__main__':
     # add argparse to pick between umxhq and umxl models
     parser = argparse.ArgumentParser(description='Convert Open Unmix PyTorch models to GGML')
-    parser.add_argument('--model', type=str, choices=('umxhq', 'umxl'), help='(umxhq, umxl)', default='umxhq')
+    parser.add_argument('--model', type=str, choices=('umxhq', 'umxl'), help='umxhq, umxl (default)', default='umxl')
     parser.add_argument("dest_dir", type=str, help="destination path for the converted model")
 
     args = parser.parse_args()
@@ -91,11 +91,20 @@ if __name__ == '__main__':
     # get torchub path
     torchhub_path = Path(torch.hub.get_dir()) / "checkpoints"
 
-    for target_name, target_model in model.items():
+    # let's write it all to one file
+    # copied from ggerganov/whisper.cpp convert-pt-to-ggml.py
+    dest_name = dir_out / f"ggml-model-{args.model}-u8.bin"
+
+    fout = dest_name.open("wb")
+    fout.write(struct.pack("i", 0x756d7867))  # magic: umxg in hex
+
+    # we want the order of bass, drums, other, vocals
+
+    #for i, (target_name, target_model) in enumerate(model.items()):
+    for i, target_name in enumerate(["bass", "drums", "other", "vocals"]):
+        target_model = model[target_name]
         print(f"Converting target {target_name}")
         print(target_model)
-
-        dest_name = dir_out / f"ggml-model-{args.model}-{target_name}-u16.bin"
 
         fname_inp = torchhub_path / HUB_PATHS[args.model][target_name]
 
@@ -112,12 +121,11 @@ if __name__ == '__main__':
 
         #print(checkpoint.keys())
         hidden_size = checkpoint['fc1.weight'].shape[0]
-        print(f"HIDDEN SIZE: {hidden_size}")
 
-        # copied from ggerganov/whisper.cpp convert-pt-to-ggml.py
-        fout = dest_name.open("wb")
-        fout.write(struct.pack("i", 0x756d7867))  # magic: umxg in hex
-        fout.write(struct.pack("i", hidden_size)) # hidden size
+        if i == 0:
+            # we only want to write this once
+            fout.write(struct.pack("i", hidden_size)) # hidden size
+            print(f"HIDDEN SIZE: {hidden_size}")
 
         # write layers
         for name in checkpoint.keys():
@@ -131,10 +139,15 @@ if __name__ == '__main__':
 
             data = data.astype(np.float32)
 
-            # cast type to a uint16 to perform quantization
+            # cast type to a uint8 to perform quantization
             # take into account the min/max values of the data for each tensor
             # and use that for appropriate quantization
-            quantized_data, scale, offset = quantize(data)
+
+            if any([x in name for x in ["bn2", "bn3", "fc2", "fc3"]]):
+            # if bn3 or fc3 in name
+                quantized_data, scale, offset = quantize(data, qtype=np.uint16)
+            else:
+                quantized_data, scale, offset = quantize(data)
 
             # header
             str_ = name.encode('utf-8')
@@ -146,7 +159,7 @@ if __name__ == '__main__':
             # data
             quantized_data.tofile(fout)
 
-        fout.close()
+    fout.close()
 
-        print("Done. Output file: " , dest_name)
-        print("")
+    print("Done. Output file: " , dest_name)
+    print("")

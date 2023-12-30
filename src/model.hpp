@@ -49,14 +49,13 @@ struct umx_model
     Eigen::MatrixXf lstm_hh_b[4][3][2];
 
     int hidden_size;
+
+    bool is_initialized = false;
+    float load_progress = 0.0f;
+    float inference_progress = 0.0f;
 };
 
 bool load_umx_model(const std::string &model_dir, struct umx_model *model);
-
-std::array<Eigen::MatrixXf, 4> umx_inference(struct umx_model *model,
-                                             const Eigen::MatrixXf &x,
-                                             int hidden_size);
-
 } // namespace umxcpp
 
 #endif // MODEL_HPP
