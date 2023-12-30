@@ -85,7 +85,7 @@ TEST(DSP_STFT, STFTRoundtripGlockenspiel)
 {
     Eigen::MatrixXf audio_in = umxcpp::load_audio("../test/data/gspi_mono.wav");
 
-    struct umxcpp::stft_buffers reusable_stft_buf(4096);
+    struct umxcpp::stft_buffers reusable_stft_buf(audio_in.cols());
     reusable_stft_buf.waveform = audio_in;
 
     // compute the stft
@@ -119,7 +119,7 @@ TEST(DSP_STFT, MagnitudePhaseCombineMono)
 {
     Eigen::MatrixXf audio_in = umxcpp::load_audio("../test/data/gspi_mono.wav");
 
-    struct umxcpp::stft_buffers reusable_stft_buf(4096);
+    struct umxcpp::stft_buffers reusable_stft_buf(audio_in.cols());
     reusable_stft_buf.waveform = audio_in;
 
     // compute the stft
@@ -203,7 +203,7 @@ TEST(DSP_STFT, MagnitudePhaseCombineStereo)
     Eigen::MatrixXf audio_in =
         umxcpp::load_audio("../test/data/gspi_stereo.wav");
 
-    struct umxcpp::stft_buffers reusable_stft_buf(4096);
+    struct umxcpp::stft_buffers reusable_stft_buf(audio_in.cols());
     reusable_stft_buf.waveform = audio_in;
 
     // compute the stft
