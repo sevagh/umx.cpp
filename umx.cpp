@@ -1,7 +1,8 @@
 #include "dsp.hpp"
+#include "inference.hpp"
 #include "lstm.hpp"
 #include "model.hpp"
-#include "inference.hpp"
+#include "wiener.hpp"
 #include <Eigen/Core>
 #include <Eigen/Dense>
 #include <cassert>
@@ -12,7 +13,6 @@
 #include <thread>
 #include <unsupported/Eigen/FFT>
 #include <vector>
-#include "wiener.hpp"
 
 using namespace umxcpp;
 
@@ -73,7 +73,8 @@ int main(int argc, const char **argv)
         shift_inference(model, audio);
 
 #pragma omp parallel for
-    for (int target = 0; target < 4; ++target) {
+    for (int target = 0; target < 4; ++target)
+    {
         // now write the 4 audio waveforms to files in the output dir
         // using libnyquist
         // join out_dir with "/target_0.wav"
