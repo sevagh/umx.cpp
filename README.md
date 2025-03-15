@@ -129,7 +129,7 @@ $ python -m pip install -r ./scripts/requirements.txt
 
 2. Dump Open-Unmix weights to ggml files (use argument `--model=umxl`, `--model=umxhq` to switch between the two best pretrained models)\*:
 ```
-$ python ./scripts/convert-pth-to-ggml.py --model=umxl ./ggml-umxl
+$ python ./scripts/convert-umx-pth-to-ggml.py --model=umxl ./ggml-umxl
 ...
 Skipping layer bn2.num_batches_tracked
 Processing variable:  fc3.weight  with shape:  (4098, 1024)
@@ -170,9 +170,9 @@ Note: I have only tested this on my Linux-based computer (Pop!\_OS 22.04), and y
 5. Run umx.cpp.main:
 ```
 $ ./umx.cpp.main
-Usage: ./umx.cpp.main <model dir> <wav file> <out dir>
+Usage: ./umx.cpp.main <model file> <wav file> <out dir>
 
-$ ./umx.cpp.main ./ggml-umxl ./test.wav ./demix-out-umxl
+$ ./umx.cpp.main ./ggml-umxl/ggml-model-umxl-u8.bin.gz ./test.wav ./demix-out-umxl
 umx.cpp Main driver program
 Number of physical cores: 32
 Input Samples: 20672662
